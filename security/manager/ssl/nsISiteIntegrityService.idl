@@ -1,0 +1,23 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#include "nsISupports.idl"
+
+interface nsIURI;
+
+[ref] native const_OriginAttributesRef(const mozilla::OriginAttributes);
+
+// { 0x030be57f, 0x7bc2, 0x48a7, \
+//   { 0xa7, 0xc8, 0x82, 0x71, 0x6d, 0x86, 0xbd, 0xd6 } }
+
+[scriptable, uuid(030be57f-7bc2-48a7-a7c8-82716d86bdd6)]
+// WAICT or maybe IntegrityTransparency ?
+interface nsISiteIntegrityService : nsISupports
+{
+    [noscript, must_use]
+    void processHeader(in nsIURI aSourceURI,
+                       in ACString aHeader,
+                       in const_OriginAttributesRef aOriginAttributes);
+
+};

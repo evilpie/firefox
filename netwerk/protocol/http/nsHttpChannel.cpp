@@ -95,9 +95,10 @@
 #include "nsIPrompt.h"
 #include "nsInputStreamPump.h"
 #include "nsURLHelper.h"
+#include "nsISiteIntegrityService.h"
+#include "nsISiteSecurityService.h"
 #include "nsISocketTransport.h"
 #include "nsIStreamConverterService.h"
-#include "nsISiteSecurityService.h"
 #include "nsIURIMutator.h"
 #include "nsString.h"
 #include "nsStringStream.h"
@@ -1352,6 +1353,8 @@ nsresult nsHttpChannel::HandleOverrideResponse() {
       }
     }
   }
+
+  ProcessWAICTHeader();
 
   rv = ProcessSecurityHeaders();
   if (NS_FAILED(rv)) {
@@ -2798,6 +2801,38 @@ nsresult nsHttpChannel::ProcessHSTSHeader(nsITransportSecurityInfo* aSecInfo) {
   return NS_OK;
 }
 
+nsresult nsHttpChannel::ProcessWAICTHeader() {
+  printf("nsHttpChannel::ProcessWAICTHeader\n");
+
+  nsAutoCString headerValue;
+  nsresult rv =
+      mResponseHead->GetHeader(nsHttp::Integrity_Policy_WAICT, headerValue);
+  printf("result: %u\n", rv);
+  if (rv == NS_ERROR_NOT_AVAILABLE) {
+    LOG((
+        "nsHttpChannel: No Integrity-Policy-WAICT header, continuing load.\n"));
+    return NS_OK;
+  }
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  nsISiteIntegrityService* integrityService =
+      gHttpHandler->GetSiteIntegrityService();
+  NS_ENSURE_TRUE(integrityService, NS_ERROR_OUT_OF_MEMORY);
+
+  // Restrict to HTTPS:?
+  OriginAttributes originAttributes;
+  if (NS_WARN_IF(!StoragePrincipalHelper::GetOriginAttributesForHTTPSRR(
+          this, originAttributes))) {
+    return NS_ERROR_FAILURE;
+  }
+
+  rv = integrityService->ProcessHeader(mURI, headerValue, originAttributes);
+
+  return NS_OK;
+}
+
 /**
  * Decide whether or not to remember Strict-Transport-Security, and whether
  * or not to enforce channel integrity.
@@ -3154,6 +3189,8 @@ nsresult nsHttpChannel::ContinueProcessResponse1(
         }
       }
     }
+
+    ProcessWAICTHeader();
 
     // Given a successful connection, process any STS or PKP data that's
     // relevant.
