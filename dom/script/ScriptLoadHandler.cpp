@@ -28,6 +28,8 @@
 #include "mozilla/Vector.h"
 #include "mozilla/dom/CacheExpirationTime.h"
 #include "mozilla/dom/Document.h"
+#include "mozilla/dom/IntegrityPolicy.h"
+#include "mozilla/dom/PolicyContainer.h"
 #include "mozilla/dom/SRICheck.h"
 #include "mozilla/dom/ScriptDecoding.h"
 #include "nsCOMPtr.h"
@@ -349,7 +351,63 @@ NS_IMETHODIMP
 ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
                                     nsISupports* aContext, nsresult aStatus,
                                     uint32_t aDataLength,
+                                    // XXX not sure about the aData lifetime.
                                     const uint8_t* aData) {
+  nsCOMPtr<nsIRequest> channelRequest;
+  aLoader->GetRequest(getter_AddRefs(channelRequest));
+  nsCOMPtr<nsIChannel> channel = do_QueryInterface(channelRequest);
+
+  nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
+  nsCOMPtr<nsISupports> loadingContext = loadInfo->GetLoadingContext();
+  RefPtr<Document> doc;
+  if (nsCOMPtr<nsINode> node = do_QueryInterface(loadingContext)) {
+    doc = node->OwnerDoc();
+  }
+
+  // TODO!!!: Need to duplicate aData!
+
+  if (doc) {
+    if (auto* integrity = IntegrityPolicy::Cast(
+            PolicyContainer::GetIntegrityPolicy(doc->GetPolicyContainer()))) {
+      if (integrity->HasWaict()) {
+        printf("ScriptLoadHandler::OnStreamComplete: Waiting for load");
+        integrity->WaitForManifestLoad()->Then(
+            GetCurrentSerialEventTarget(), __func__,
+            [self = RefPtr{this}, channel, integrity = RefPtr{integrity},
+             context = nsCOMPtr{aContext}, aStatus,
+             aDataLength, aData](bool) {
+              printf("ScriptLoadHandler::OnStreamComplete: Promise resolved\n");
+
+              // XXX Not clear if we want to use pre-redirect URL.
+              nsCOMPtr<nsIURI> originalURI;
+              channel->GetOriginalURI(getter_AddRefs(originalURI));
+              if (!integrity->CheckHash(originalURI,
+                                        /* todo the hash */ EmptyCString())) {
+                printf("ScriptLoadHandler::OnStreamComplete: Wrong hash\n");
+
+                self->DoOnStreamComplete(channel, NS_ERROR_FAILURE,
+                                         aDataLength, aData);
+                return;
+              }
+
+              printf(
+                  "ScriptLoadHandler::OnStreamComplete: Correct hash \\o/\n");
+              self->DoOnStreamComplete(channel, aStatus, aDataLength,
+                                       aData);
+            },
+            [](bool) { printf("%s: Failure\n", __func__); });
+
+        return NS_OK;
+      }
+    }
+  }
+
+  return DoOnStreamComplete(channel, aStatus, aDataLength, aData);
+}
+
+nsresult ScriptLoadHandler::DoOnStreamComplete(
+    nsIChannel* aChannel,
+    nsresult aStatus, uint32_t aDataLength, const uint8_t* aData) {
   nsresult rv = NS_OK;
   if (LOG_ENABLED()) {
     nsAutoCString url;
@@ -358,28 +416,23 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
          url.get()));
   }
 
-  nsCOMPtr<nsIRequest> channelRequest;
-  aLoader->GetRequest(getter_AddRefs(channelRequest));
-  nsCOMPtr<nsIChannel> channel = do_QueryInterface(channelRequest);
-  MOZ_ASSERT(channel, "StreamLoader must have a channel");
+  mRequest->mNetworkMetadata = new SubResourceNetworkMetadataHolder(aChannel);
 
-  mRequest->mNetworkMetadata = new SubResourceNetworkMetadataHolder(channel);
-
-  channel->SetNotificationCallbacks(nullptr);
+  aChannel->SetNotificationCallbacks(nullptr);
 
   auto firstMessage = !mPreloadStartNotified;
   if (!mPreloadStartNotified) {
     mPreloadStartNotified = true;
-    mRequest->GetScriptLoadContext()->NotifyStart(channelRequest);
+    mRequest->GetScriptLoadContext()->NotifyStart(aChannel);
   }
 
   auto notifyStop = MakeScopeExit([&] {
-    mRequest->GetScriptLoadContext()->NotifyStop(channelRequest, rv);
+    mRequest->GetScriptLoadContext()->NotifyStop(aChannel, rv);
   });
 
   if (!mRequest->IsCanceled()) {
     if (mRequest->IsUnknownDataType()) {
-      rv = EnsureKnownDataType(channel);
+      rv = EnsureKnownDataType(aChannel);
       NS_ENSURE_SUCCESS(rv, rv);
     }
 
@@ -391,7 +444,7 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
 
     if (mRequest->IsTextSource()) {
       DebugOnly<bool> encoderSet =
-          EnsureDecoder(channel, aData, aDataLength, /* aEndOfStream = */ true);
+          EnsureDecoder(aChannel, aData, aDataLength, /* aEndOfStream = */ true);
       MOZ_ASSERT(encoderSet);
       rv = mDecoder->DecodeRawData(mRequest, aData, aDataLength,
                                    /* aEndOfStream = */ true);
@@ -423,7 +476,7 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
       uint32_t unused;
       rv = MaybeDecodeSRI(&unused);
       if (NS_FAILED(rv)) {
-        return channelRequest->Cancel(mScriptLoader->RestartLoad(mRequest));
+        return aChannel->Cancel(mScriptLoader->RestartLoad(mRequest));
       }
 
       // The serialized stencil always starts with the SRI hash, thus even if
@@ -432,7 +485,7 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
       rv = SRICheckDataVerifier::DataSummaryLength(buf.length(), buf.begin(),
                                                    &sriLength);
       if (NS_FAILED(rv)) {
-        return channelRequest->Cancel(mScriptLoader->RestartLoad(mRequest));
+        return aChannel->Cancel(mScriptLoader->RestartLoad(mRequest));
       }
 
       mRequest->SetSRILength(sriLength);
@@ -451,7 +504,7 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
   // Everything went well, keep the CacheInfoChannel alive such that we can
   // later save the serialized stencil on the cache entry.
   // we have to mediate and use mRequest.
-  rv = mScriptLoader->OnStreamComplete(channel, mRequest, aStatus, mSRIStatus,
+  rv = mScriptLoader->OnStreamComplete(aChannel, mRequest, aStatus, mSRIStatus,
                                        mSRIDataVerifier.get());
 
   return rv;

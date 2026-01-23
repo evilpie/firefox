@@ -303,6 +303,9 @@ IntegrityPolicy::WaitForManifestLoad() {
 }
 
 bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash) {
+  printf("IntegrityPolicy::CheckHash aURI = %s\n",
+         aURI->GetSpecOrDefault().get());
+
   for (auto& entry : mWaictManifest.mHashes.Entries()) {
     nsCOMPtr<nsIURI> uri;
     NS_NewURI(getter_AddRefs(uri), entry.mKey, nullptr, mDocumentURI);
@@ -323,6 +326,7 @@ bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash) {
     // XXX check hash
   }
 
+  printf("> Failed\n");
   return false;
 }
 
