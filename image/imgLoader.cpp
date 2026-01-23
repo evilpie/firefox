@@ -36,6 +36,8 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/FetchPriority.h"
 #include "mozilla/dom/nsMixedContentBlocker.h"
+#include "mozilla/dom/PolicyContainer.h"
+#include "mozilla/dom/IntegrityPolicy.h"
 #include "mozilla/image/ImageMemoryReporter.h"
 #include "mozilla/layers/CompositorManagerChild.h"
 #include "nsCOMPtr.h"
@@ -3028,6 +3030,46 @@ NS_IMETHODIMP
 ProxyListener::OnStopRequest(nsIRequest* aRequest, nsresult status) {
   if (!mDestListener) {
     return NS_ERROR_FAILURE;
+  }
+
+  printf("ProxyListener::OnStopRequest\n");
+
+  if (nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest)) {
+    nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
+    nsCOMPtr<nsISupports> loadingContext = loadInfo->GetLoadingContext();
+    RefPtr<Document> doc;
+    if (nsCOMPtr<nsINode> node = do_QueryInterface(loadingContext)) {
+      doc = node->OwnerDoc();
+    }
+
+    if (doc) {
+      if (auto* integrity = IntegrityPolicy::Cast(
+              PolicyContainer::GetIntegrityPolicy(doc->GetPolicyContainer()))) {
+        if (integrity->HasWaict()) {
+          printf("ProxyListener::OnStopRequest: Waiting for load");
+          integrity->WaitForManifestLoad()->Then(
+              GetCurrentSerialEventTarget(), __func__,
+              [listener = nsCOMPtr{mDestListener}, channel, request = nsCOMPtr{aRequest},
+               status, integrity = RefPtr{integrity}](bool) {
+                printf("ProxyListener::OnStopRequest: Promise resolved\n");
+
+                // XXX Not clear if we want to use pre-redirect URL.
+                nsCOMPtr<nsIURI> originalURI;
+                channel->GetOriginalURI(getter_AddRefs(originalURI));
+                if (!integrity->CheckHash(originalURI, /* todo the hash */ EmptyCString())) {
+                  printf("ProxyListener::OnStopRequest: Wrong hash\n");
+                  return listener->OnStopRequest(request, NS_ERROR_FAILURE);
+                }
+
+                printf("ProxyListener::OnStopRequest: Correct hash \\o/\n");
+                return listener->OnStopRequest(request, status);
+              },
+              [](bool) { printf("Failure\n"); });
+
+          return NS_OK;
+        }
+      }
+    }
   }
 
   return mDestListener->OnStopRequest(aRequest, status);

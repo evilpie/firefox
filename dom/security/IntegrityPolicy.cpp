@@ -25,7 +25,12 @@ static LazyLogModule sIntegrityPolicyLogModule("IntegrityPolicy");
 
 namespace mozilla::dom {
 
-IntegrityPolicy::~IntegrityPolicy() = default;
+IntegrityPolicy::~IntegrityPolicy() {
+  // Stop asserting about promise not being rejected before it's destroyed.
+  if (mWAICTPromise) {
+    mWAICTPromise->Reject(false, __func__);
+  }
+}
 
 RequestDestination ContentTypeToDestination(nsContentPolicyType aType) {
   // From SecFetch.cpp
@@ -200,6 +205,8 @@ Result<nsTArray<nsCString>, nsresult> ParseEndpoints(nsISFVDictionary* aDict) {
 // https://w3c.github.io/webappsec-subresource-integrity/#processing-an-integrity-policy
 nsresult IntegrityPolicy::ParseHeaders(const nsACString& aHeader,
                                        const nsACString& aHeaderRO,
+                                       const nsACString& aWaict,
+                                       nsIURI* aDocumentURI,
                                        IntegrityPolicy** aPolicy) {
   if (!StaticPrefs::security_integrity_policy_enabled()) {
     return NS_OK;
@@ -279,12 +286,129 @@ nsresult IntegrityPolicy::ParseHeaders(const nsACString& aHeader,
     }
   }
 
+  policy->ParseWaict(aDocumentURI, aWaict);
+
   // 6. Return integrityPolicy.
   policy.forget(aPolicy);
 
   LOG("[{}] Finished parsing headers.", static_cast<void*>(policy));
 
   return NS_OK;
+}
+
+RefPtr<IntegrityPolicy::WAICTManifestLoadedPromise>
+IntegrityPolicy::WaitForManifestLoad() {
+  MOZ_ASSERT(HasWaict());
+  return mWAICTPromise;
+}
+
+bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash) {
+  for (auto& entry : mWaictManifest.mHashes.Entries()) {
+    nsCOMPtr<nsIURI> uri;
+    NS_NewURI(getter_AddRefs(uri), entry.mKey, nullptr, mDocumentURI);
+    MOZ_DBG(uri);
+
+    if (!uri) {
+      printf("Failed to parse URL\n");
+      MOZ_DBG(entry.mKey);
+      continue;
+    }
+
+    bool equal = false;
+    uri->Equals(aURI, &equal);
+    if (equal) {
+      return true;
+    }
+
+    // XXX check hash
+  }
+
+  return false;
+}
+
+nsresult IntegrityPolicy::ParseWaict(nsIURI* aDocumentURI, const nsACString& aHeader) {
+  mDocumentURI = aDocumentURI;
+
+  nsCOMPtr<nsISFVService> sfv = net::GetSFVService();
+  if (!sfv) {
+    return NS_ERROR_FAILURE;
+  }
+
+  nsCOMPtr<nsISFVDictionary> dict;
+  MOZ_TRY(sfv->ParseDictionary(aHeader, getter_AddRefs(dict)));
+
+  nsCOMPtr<nsISFVItemOrInnerList> manifest;
+  MOZ_TRY(dict->Get("manifest"_ns, getter_AddRefs(manifest)));
+
+  MOZ_DBG(manifest);
+
+  nsCOMPtr<nsISFVItem> manifestItem = do_QueryInterface(manifest);
+  if (!manifestItem) {
+    return NS_ERROR_FAILURE;
+  }
+
+  MOZ_DBG(manifestItem);
+
+  nsCOMPtr<nsISFVBareItem> value;
+  MOZ_TRY(manifestItem->GetValue(getter_AddRefs(value)));
+
+  if (nsCOMPtr<nsISFVString> stringVal = do_QueryInterface(value)) {
+    MOZ_TRY(stringVal->GetValue(mWaictManifestURL));
+    MOZ_DBG(mWaictManifestURL);
+  }
+
+  FetchWaictManifest();
+  return NS_OK;
+}
+
+NS_IMETHODIMP IntegrityPolicy::OnStreamComplete(nsIStreamLoader* aLoader,
+                                                nsISupports* context,
+                                                nsresult aStatus,
+                                                uint32_t aDataLen,
+                                                const uint8_t* aData) {
+  printf("IntegrityPolicy::OnStreamComplete: dataLen = %u\n", aDataLen);
+
+  if (NS_FAILED(aStatus)) {
+    return NS_OK;
+  }
+
+  nsDependentCSubstring data(reinterpret_cast<const char*>(aData), aDataLen);
+
+  if (!mWaictManifest.Init(NS_ConvertUTF8toUTF16(data))) {
+    printf("> Failed to parse manifest\n");
+    return NS_OK;
+  }
+
+  MOZ_DBG(mWaictManifest.mVersion);
+  MOZ_DBG(mWaictManifest.mHashes.Entries().Length());
+
+  mWAICTPromise->Resolve(true, __func__);
+
+  return NS_OK;
+}
+
+void IntegrityPolicy::FetchWaictManifest() {
+  printf("FetchWaictManifest: pid=%d\n", getpid());
+
+  mWAICTPromise = MakeRefPtr<WAICTManifestLoadedPromise::Private>(__func__);
+
+  nsCOMPtr<nsIURI> uri;
+  NS_NewURI(getter_AddRefs(uri), mWaictManifestURL, nullptr, mDocumentURI);
+  MOZ_DBG(uri);
+
+  if (!uri) {
+    return;
+  }
+
+  nsCOMPtr<nsIStreamLoader> loader;
+  // XXX use right flags.
+  nsresult rv = NS_NewStreamLoader(
+      getter_AddRefs(loader), uri,
+      this,  // aObserver
+      nsContentUtils::GetSystemPrincipal(),
+      nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_SEC_CONTEXT_IS_NULL,
+      nsIContentPolicy::TYPE_OTHER);
+  printf("rv = %u\n", rv);
 }
 
 void IntegrityPolicy::PolicyContains(DestinationType aDestination,
@@ -521,7 +645,8 @@ IntegrityPolicy::Write(nsIObjectOutputStream* aStream) {
 }
 
 NS_IMPL_CLASSINFO(IntegrityPolicy, nullptr, 0, NS_IINTEGRITYPOLICY_IID)
-NS_IMPL_ISUPPORTS_CI(IntegrityPolicy, nsIIntegrityPolicy, nsISerializable)
+NS_IMPL_ISUPPORTS_CI(IntegrityPolicy, nsIIntegrityPolicy, nsISerializable,
+                     nsIStreamLoaderObserver)
 
 }  // namespace mozilla::dom
 

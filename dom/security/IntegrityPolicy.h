@@ -10,8 +10,11 @@
 #include "mozilla/EnumSet.h"
 #include "mozilla/EnumTypeTraits.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/MozPromise.h"
+#include "mozilla/dom/WAICTManifestBinding.h"
 #include "nsIContentPolicy.h"
 #include "nsIIntegrityPolicy.h"
+#include "nsIStreamLoader.h"
 #include "nsTArray.h"
 
 #define NS_INTEGRITYPOLICY_CONTRACTID "@mozilla.org/integritypolicy;1"
@@ -25,16 +28,20 @@ class IntegrityPolicyArgs;
 }  // namespace ipc
 namespace dom {
 
-class IntegrityPolicy : public nsIIntegrityPolicy {
+class IntegrityPolicy : public nsIIntegrityPolicy,
+                        public nsIStreamLoaderObserver {
  public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSISERIALIZABLE
   NS_DECL_NSIINTEGRITYPOLICY
+  NS_DECL_NSISTREAMLOADEROBSERVER
 
   IntegrityPolicy() = default;
 
   static nsresult ParseHeaders(const nsACString& aHeader,
                                const nsACString& aHeaderRO,
+                               const nsACString& aWaict,
+                               nsIURI* aDocumentURI,
                                IntegrityPolicy** aPolicy);
 
   enum class SourceType : uint8_t { Inline };
@@ -69,10 +76,21 @@ class IntegrityPolicy : public nsIIntegrityPolicy {
   static bool Equals(const IntegrityPolicy* aPolicy,
                      const IntegrityPolicy* aOtherPolicy);
 
+  bool HasWaict() const { return !mWaictManifestURL.IsEmpty(); }
+
+  using WAICTManifestLoadedPromise =
+      MozPromise<bool, bool, /* IsExclusive */ false>;
+  RefPtr<WAICTManifestLoadedPromise> WaitForManifestLoad();
+
+  bool CheckHash(nsIURI* aURI, const nsACString& aHash);
+
  protected:
   virtual ~IntegrityPolicy();
 
  private:
+  nsresult ParseWaict(nsIURI* aDocumentURI, const nsACString& aHeader);
+  void FetchWaictManifest();
+
   class Entry final {
    public:
     Entry(Sources aSources, Destinations aDestinations,
@@ -98,6 +116,12 @@ class IntegrityPolicy : public nsIIntegrityPolicy {
 
   Maybe<Entry> mEnforcement;
   Maybe<Entry> mReportOnly;
+
+  nsCOMPtr<nsIURI> mDocumentURI;
+  nsCString mWaictManifestURL;
+  // XXX We should not use this directly.
+  WAICTMAnifest mWaictManifest;
+  RefPtr<WAICTManifestLoadedPromise::Private> mWAICTPromise;
 };
 }  // namespace dom
 

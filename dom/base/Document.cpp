@@ -4067,15 +4067,18 @@ nsresult Document::InitIntegrityPolicy(nsIChannel* aChannel) {
     return rv;
   }
 
+  nsAutoCString waict;
   if (httpChannel) {
     (void)httpChannel->GetResponseHeader("integrity-policy"_ns, headerValue);
 
     (void)httpChannel->GetResponseHeader("integrity-policy-report-only"_ns,
                                          headerROValue);
+
+    (void)httpChannel->GetResponseHeader("integrity-policy-waict"_ns, waict);
   }
 
   RefPtr<IntegrityPolicy> integrityPolicy;
-  rv = IntegrityPolicy::ParseHeaders(headerValue, headerROValue,
+  rv = IntegrityPolicy::ParseHeaders(headerValue, headerROValue, waict, mDocumentURI, 
                                      getter_AddRefs(integrityPolicy));
   NS_ENSURE_SUCCESS(rv, rv);
 
