@@ -8,6 +8,7 @@
 #define mozilla_image_imgRequest_h
 
 #include "nsIChannelEventSink.h"
+#include "nsICryptoHash.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsIStreamListener.h"
 #include "nsIThreadRetargetableStreamListener.h"
@@ -300,6 +301,9 @@ class imgRequest final : public nsIThreadRetargetableStreamListener,
   bool mHadInsecureRedirect : 1 MOZ_GUARDED_BY(mMutex);
   // The ID of the inner window origin, used for error reporting.
   uint64_t mInnerWindowId MOZ_GUARDED_BY(mMutex);
+
+  // Crypto hash used for multipart image loads.
+  nsCOMPtr<nsICryptoHash> mCrypto;
 };
 
 #endif  // mozilla_image_imgRequest_h
