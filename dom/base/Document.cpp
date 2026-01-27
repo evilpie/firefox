@@ -4074,7 +4074,7 @@ nsresult Document::InitIntegrityPolicy(nsIChannel* aChannel) {
     (void)httpChannel->GetResponseHeader("integrity-policy-report-only"_ns,
                                          headerROValue);
 
-    (void)httpChannel->GetResponseHeader("integrity-policy-waict"_ns, waict);
+    (void)httpChannel->GetResponseHeader("integrity-policy-waict-v1"_ns, waict);
   }
 
   RefPtr<IntegrityPolicy> integrityPolicy;
