@@ -631,24 +631,8 @@ imgRequest::OnStartRequest(nsIRequest* aRequest) {
 
   RefPtr<Image> image;
 
-  mCrypto = do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID);
-  if (!mCrypto) {
-      MOZ_LOG(gImgLog, LogLevel::Warning,
-              ("[this=%p] imgRequest::OnStartRequest -- "
-               "do_CreateInstance for nsICryptoHash failed\n", this));
-  }
-
-  // TODO: We need to make sure which hash algorith is to be used here.
-  // TODO: I leave SHA-2 for the prototype implementation.
-  nsresult rv = mCrypto->Init(nsICryptoHash::SHA256);
-  if (NS_FAILED(rv)) {
-    MOZ_LOG(gImgLog, LogLevel::Warning,
-            ("[this=%p] imgRequest::OnStartRequest -- "
-             "nsICryptoHash::Init failed rv %" PRIu32 "=%s\n",
-             this, static_cast<uint32_t>(rv),
-             NS_SUCCEEDED(rv) ? "succeeded" : "failed"));
-  }
-
+  // Initialize the hasher for resource integrity verification.
+  mResourceHasher = ResourceHasher::Init(nsICryptoHash::SHA256);
 
   if (nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(aRequest)) {
     nsresult rv;
@@ -749,26 +733,6 @@ NS_IMETHODIMP
 imgRequest::OnStopRequest(nsIRequest* aRequest, nsresult status) {
   LOG_FUNC(gImgLog, "imgRequest::OnStopRequest");
   MOZ_ASSERT(NS_IsMainThread(), "Can't send notifications off-main-thread");
-
-  nsAutoCString hash;
-  nsresult rv = mCrypto->Finish(/* binary = */ true, hash);
-  if (NS_FAILED(rv)) {
-    MOZ_LOG(gImgLog, LogLevel::Warning,
-            ("[this=%p] imgRequest::OnStopRequest -- "
-             "nsICryptoHash::Finish failed rv %" PRIu32 "=%s\n",
-             this, static_cast<uint32_t>(rv),
-             NS_SUCCEEDED(rv) ? "succeeded" : "failed"));
-    return NS_OK;
-  }
-
-  if (mURI) {
-    nsAutoCString spec;
-    mURI->GetSpec(spec);
-    MOZ_LOG(gImgLog, LogLevel::Debug,
-            ("[this=%p] imgRequest::OnStopRequest -- "
-             "Base64 SHA-256 of %s = %s\n",
-             this, spec.get(), hash.get()));
-  }
 
   RefPtr<imgRequest> strongThis = this;
 
@@ -1037,55 +1001,26 @@ imgRequest::OnDataAvailable(nsIRequest* aRequest, nsIInputStream* aInStr,
 
   NS_ASSERTION(aRequest, "imgRequest::OnDataAvailable -- no request!");
 
-    if (aInStr && mCrypto) {
+  if (aInStr && mResourceHasher) {
     nsAutoCString buffer;
     buffer.SetLength(aCount);
-
     uint32_t bytesRead = 0;
 
-    // AW: We need to clone the input stream to not disturb the original stream
-    //     position. Otherwise the image decoding will fail.
-    // Note that this requires the input stream to be cloneable.
-    // If it's not cloneable we skip hashing for now.
-
-    // Another approach would be to QI for nsISeekableStream and save/restore
-    // the position around the read. But not all streams are seekable either.
-    // It's actually even more rare to be seekable than cloneable I think.
-    // So for now we go with cloneable streams only.
     nsCOMPtr<nsICloneableInputStream> cloneable = do_QueryInterface(aInStr);
     if (cloneable && cloneable->GetCloneable()) {
-      nsCOMPtr<nsIInputStream> aCloneInStrForHash;
-      cloneable->Clone(getter_AddRefs(aCloneInStrForHash));
+      nsCOMPtr<nsIInputStream> cloneInStrForHash;
+      cloneable->Clone(getter_AddRefs(cloneInStrForHash));
 
-      if (aCloneInStrForHash)
-      {
-        nsresult rv = aCloneInStrForHash->Read(buffer.BeginWriting(), aCount, &bytesRead);
+      if (cloneInStrForHash) {
+        nsresult rv =
+            cloneInStrForHash->Read(buffer.BeginWriting(), aCount, &bytesRead);
         if (NS_SUCCEEDED(rv) && bytesRead > 0) {
-          mCrypto->Update(reinterpret_cast<const uint8_t*>(buffer.BeginReading()),
-                        bytesRead);
-        }
-        else {
-          MOZ_LOG(gImgLog, LogLevel::Warning,
-              ("[this=%p] imgRequest::OnDataAvailable -- "
-               "Failed to read from cloned stream for hashing rv %" PRIu32 "=%s\n",
-               this, static_cast<uint32_t>(rv),
-               NS_SUCCEEDED(rv) ? "succeeded" : "failed"));
+          // Just call Update - logging happens inside
+          mResourceHasher->Update(
+              reinterpret_cast<const uint8_t*>(buffer.BeginReading()),
+              bytesRead);
         }
       }
-      else {
-        MOZ_LOG(gImgLog, LogLevel::Warning,
-            ("[this=%p] imgRequest::OnDataAvailable -- "
-             "do_QueryInterface for nsICloneableInputStream succeeded but Clone() failed\n",
-             this));
-      }
-    }
-    else {
-      // Not cloneable, skip hashing.
-      // It will be better to report back that we couldn't hash the data.
-      MOZ_LOG(gImgLog, LogLevel::Warning,
-          ("[this=%p] imgRequest::OnDataAvailable -- "
-           "Input stream is not cloneable, skipping hashing for this chunk\n",
-           this));
     }
   }
 
