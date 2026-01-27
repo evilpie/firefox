@@ -303,8 +303,8 @@ IntegrityPolicy::WaitForManifestLoad() {
 }
 
 bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash) {
-  printf("IntegrityPolicy::CheckHash aURI = %s\n",
-         aURI->GetSpecOrDefault().get());
+  printf("IntegrityPolicy::CheckHash aURI = %s aHash = %s\n",
+         aURI->GetSpecOrDefault().get(), nsCString(aHash).get());
 
   for (auto& entry : mWaictManifest.mHashes.Entries()) {
     nsCOMPtr<nsIURI> uri;
@@ -319,14 +319,20 @@ bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash) {
 
     bool equal = false;
     uri->Equals(aURI, &equal);
-    if (equal) {
-      return true;
+    if (!equal) {
+      continue;
     }
 
-    // XXX check hash
+    if (NS_ConvertUTF16toUTF8(entry.mValue) != aHash) {
+      printf("> Wrong hash\n");
+      return false;
+    }
+
+    printf("> Correct hash!!!\n");
+    return true;
   }
 
-  printf("> Failed\n");
+  printf("> URL not found\n");
   return false;
 }
 
