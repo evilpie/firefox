@@ -78,6 +78,8 @@
 #include "nsILoadGroupChild.h"
 #include "nsIDocShell.h"
 
+#include "mozilla/dom/WAICTLog.h"
+
 using namespace mozilla;
 using namespace mozilla::dom;
 using namespace mozilla::image;
@@ -3037,6 +3039,36 @@ ProxyListener::OnStopRequest(nsIRequest* aRequest, nsresult status) {
   if (nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest)) {
     nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
     nsCOMPtr<nsISupports> loadingContext = loadInfo->GetLoadingContext();
+
+    // Open for better ideas
+    imgRequest* imgReq = static_cast<imgRequest*>(mDestListener.get());
+    if (!imgReq) {
+      MOZ_LOG(gWaictLog, LogLevel::Error,
+              ("[this=%p] ProxyListener::OnStopRequest -- "
+               "Destination listener is not an imgRequest\n",
+               this));
+      return mDestListener->OnStopRequest(aRequest, status);
+    }
+
+    nsAutoCString computedHash;
+    if (imgReq->GetResourceHasher()) {
+      imgReq->GetResourceHasher()->Finish();
+      computedHash = imgReq->GetResourceHasher()->GetHash();
+      if (computedHash.IsEmpty()) {
+        MOZ_LOG(gWaictLog, LogLevel::Error,
+                ("[this=%p] ProxyListener::OnStopRequest -- "
+                 "No computed hash available\n",
+                 this));
+        return mDestListener->OnStopRequest(aRequest, NS_ERROR_FAILURE);
+      }
+    } else {
+      MOZ_LOG(gWaictLog, LogLevel::Error,
+              ("[this=%p] ProxyListener::OnStopRequest -- "
+               "No resource hasher\n",
+               this));
+      return mDestListener->OnStopRequest(aRequest, NS_ERROR_FAILURE);
+    }
+
     RefPtr<Document> doc;
     if (nsCOMPtr<nsINode> node = do_QueryInterface(loadingContext)) {
       doc = node->OwnerDoc();
@@ -3049,14 +3081,17 @@ ProxyListener::OnStopRequest(nsIRequest* aRequest, nsresult status) {
           printf("ProxyListener::OnStopRequest: Waiting for load");
           integrity->WaitForManifestLoad()->Then(
               GetCurrentSerialEventTarget(), __func__,
-              [listener = nsCOMPtr{mDestListener}, channel, request = nsCOMPtr{aRequest},
-               status, integrity = RefPtr{integrity}](bool) {
+              [listener = nsCOMPtr{mDestListener}, channel,
+               request = nsCOMPtr{aRequest}, status,
+               integrity = RefPtr{integrity},
+               computedHash = nsCString(computedHash)](bool) {
                 printf("ProxyListener::OnStopRequest: Promise resolved\n");
 
                 // XXX Not clear if we want to use pre-redirect URL.
                 nsCOMPtr<nsIURI> originalURI;
                 channel->GetOriginalURI(getter_AddRefs(originalURI));
-                if (!integrity->CheckHash(originalURI, /* todo the hash */ EmptyCString())) {
+                if (computedHash.IsEmpty() ||
+                    !integrity->CheckHash(originalURI, computedHash)) {
                   printf("ProxyListener::OnStopRequest: Wrong hash\n");
                   return listener->OnStopRequest(request, NS_ERROR_FAILURE);
                 }

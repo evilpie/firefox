@@ -31,10 +31,12 @@ EXPORTS.mozilla.dom += [
     "PolicyContainer.h",
     "PolicyTokenizer.h",
     "ReferrerInfo.h",
+    "ResourceHasher.h",
     "SecFetch.h",
     "SRICheck.h",
     "SRILogHelper.h",
     "SRIMetadata.h",
+    "WAICTLog.h"
 ]
 
 EXPORTS += [
@@ -63,9 +65,11 @@ UNIFIED_SOURCES += [
     "PolicyContainer.cpp",
     "PolicyTokenizer.cpp",
     "ReferrerInfo.cpp",
+    "ResourceHasher.cpp",
     "SecFetch.cpp",
     "SRICheck.cpp",
     "SRIMetadata.cpp",
+    "WAICTLog.cpp",
 ]
 
 include("/ipc/chromium/chromium-config.mozbuild")
