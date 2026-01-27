@@ -30,8 +30,10 @@
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/IntegrityPolicy.h"
 #include "mozilla/dom/PolicyContainer.h"
+#include "mozilla/dom/ResourceHasher.h"
 #include "mozilla/dom/SRICheck.h"
 #include "mozilla/dom/ScriptDecoding.h"
+#include "mozilla/dom/WAICTLog.h"
 #include "nsCOMPtr.h"
 #include "nsContentUtils.h"
 #include "nsDebug.h"
@@ -137,7 +139,8 @@ ScriptLoadHandler::OnStartRequest(nsIRequest* aRequest) {
   mRequest->SetMinimumExpirationTime(
       nsContentUtils::GetSubresourceCacheExpirationTime(aRequest,
                                                         mRequest->URI()));
-
+  // TODO: Provide the OID of the hash algorithm instead of just SHA256.
+  mResourceHasher = mozilla::dom::ResourceHasher::Init(nsICryptoHash::SHA256);
   return NS_OK;
 }
 
@@ -171,6 +174,20 @@ ScriptLoadHandler::OnIncrementalData(nsIIncrementalStreamLoader* aLoader,
 
   if (mRequest->IsSerializedStencil() && firstTime) {
     PerfStats::RecordMeasurementStart(PerfStats::Metric::JSBC_IO_Read);
+  }
+
+  // I just have it separated from the next block for clarity.
+  // We can merge it later.
+  if (mRequest->IsTextSource()) {
+    // If we have a resource hasher, update it with the new data.
+    if (mResourceHasher) {
+      rv = mResourceHasher->Update(aData, aDataLength);
+      NS_ENSURE_SUCCESS(rv, rv);
+    }
+  } else {
+    MOZ_LOG(gWaictLog, LogLevel::Warning,
+            ("ScriptLoadHandler::OnIncrementalData -- "
+             "Received incremental data for non-text source\n"));
   }
 
   if (mRequest->IsTextSource()) {
@@ -359,6 +376,32 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
 
   nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
   nsCOMPtr<nsISupports> loadingContext = loadInfo->GetLoadingContext();
+
+  // IIUC this is the last chunk of data?
+  if (mResourceHasher) {
+    nsresult rv = mResourceHasher->Update(aData, aDataLength);
+    if (NS_FAILED(rv)) {
+      MOZ_LOG(gWaictLog, LogLevel::Error,
+              ("ScriptLoadHandler::OnStreamComplete -- "
+               "Failed to update resource hash\n"));
+      return DoOnStreamComplete(channel, NS_ERROR_FAILURE, aDataLength, aData);
+    }
+  } else {
+    MOZ_LOG(gWaictLog, LogLevel::Warning,
+            ("ScriptLoadHandler::OnStreamComplete -- "
+             "No resource hasher available to compute resource hash\n"));
+    return DoOnStreamComplete(channel, NS_ERROR_FAILURE, aDataLength, aData);
+  }
+
+  mResourceHasher->Finish();
+  nsAutoCString computedHash(mResourceHasher->GetHash());
+  if (computedHash.IsEmpty()) {
+    MOZ_LOG(gWaictLog, LogLevel::Error,
+            ("ScriptLoadHandler::OnStreamComplete -- "
+             "Failed to compute resource hash\n"));
+    return DoOnStreamComplete(channel, NS_ERROR_FAILURE, aDataLength, aData);
+  }
+
   RefPtr<Document> doc;
   if (nsCOMPtr<nsINode> node = do_QueryInterface(loadingContext)) {
     doc = node->OwnerDoc();
@@ -371,31 +414,44 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
             PolicyContainer::GetIntegrityPolicy(doc->GetPolicyContainer()))) {
       if (integrity->HasWaict()) {
         printf("ScriptLoadHandler::OnStreamComplete: Waiting for load");
+
+        nsTArray<uint8_t> dataCopy;
+        if (!dataCopy.AppendElements(aData, aDataLength, fallible)) {
+          return DoOnStreamComplete(channel, NS_ERROR_OUT_OF_MEMORY,
+                                    aDataLength, aData);
+        }
+
         integrity->WaitForManifestLoad()->Then(
             GetCurrentSerialEventTarget(), __func__,
             [self = RefPtr{this}, channel, integrity = RefPtr{integrity},
              context = nsCOMPtr{aContext}, aStatus,
-             aDataLength, aData](bool) {
+             dataCopy = std::move(dataCopy),
+             computedHash = nsCString(computedHash)](bool) {
               printf("ScriptLoadHandler::OnStreamComplete: Promise resolved\n");
 
               // XXX Not clear if we want to use pre-redirect URL.
               nsCOMPtr<nsIURI> originalURI;
               channel->GetOriginalURI(getter_AddRefs(originalURI));
-              if (!integrity->CheckHash(originalURI,
-                                        /* todo the hash */ EmptyCString())) {
+              if (!integrity->CheckHash(originalURI, computedHash)) {
                 printf("ScriptLoadHandler::OnStreamComplete: Wrong hash\n");
 
                 self->DoOnStreamComplete(channel, NS_ERROR_FAILURE,
-                                         aDataLength, aData);
+                                         dataCopy.Length(),
+                                         dataCopy.Elements());
                 return;
               }
 
               printf(
                   "ScriptLoadHandler::OnStreamComplete: Correct hash \\o/\n");
-              self->DoOnStreamComplete(channel, aStatus, aDataLength,
-                                       aData);
+              self->DoOnStreamComplete(channel, aStatus, dataCopy.Length(),
+                                       dataCopy.Elements());
             },
-            [](bool) { printf("%s: Failure\n", __func__); });
+            [self = RefPtr{this}, channel,
+             dataCopy = std::move(dataCopy)](bool) {
+              MOZ_LOG(gWaictLog, LogLevel::Error, ("Promise rejected\n"));
+              self->DoOnStreamComplete(channel, NS_ERROR_FAILURE,
+                                       dataCopy.Length(), dataCopy.Elements());
+            });
 
         return NS_OK;
       }
@@ -405,9 +461,10 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
   return DoOnStreamComplete(channel, aStatus, aDataLength, aData);
 }
 
-nsresult ScriptLoadHandler::DoOnStreamComplete(
-    nsIChannel* aChannel,
-    nsresult aStatus, uint32_t aDataLength, const uint8_t* aData) {
+nsresult ScriptLoadHandler::DoOnStreamComplete(nsIChannel* aChannel,
+                                               nsresult aStatus,
+                                               uint32_t aDataLength,
+                                               const uint8_t* aData) {
   nsresult rv = NS_OK;
   if (LOG_ENABLED()) {
     nsAutoCString url;
@@ -426,9 +483,8 @@ nsresult ScriptLoadHandler::DoOnStreamComplete(
     mRequest->GetScriptLoadContext()->NotifyStart(aChannel);
   }
 
-  auto notifyStop = MakeScopeExit([&] {
-    mRequest->GetScriptLoadContext()->NotifyStop(aChannel, rv);
-  });
+  auto notifyStop = MakeScopeExit(
+      [&] { mRequest->GetScriptLoadContext()->NotifyStop(aChannel, rv); });
 
   if (!mRequest->IsCanceled()) {
     if (mRequest->IsUnknownDataType()) {
@@ -443,8 +499,8 @@ nsresult ScriptLoadHandler::DoOnStreamComplete(
     }
 
     if (mRequest->IsTextSource()) {
-      DebugOnly<bool> encoderSet =
-          EnsureDecoder(aChannel, aData, aDataLength, /* aEndOfStream = */ true);
+      DebugOnly<bool> encoderSet = EnsureDecoder(aChannel, aData, aDataLength,
+                                                 /* aEndOfStream = */ true);
       MOZ_ASSERT(encoderSet);
       rv = mDecoder->DecodeRawData(mRequest, aData, aDataLength,
                                    /* aEndOfStream = */ true);
