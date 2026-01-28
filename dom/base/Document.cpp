@@ -4078,7 +4078,8 @@ nsresult Document::InitIntegrityPolicy(nsIChannel* aChannel) {
   }
 
   RefPtr<IntegrityPolicy> integrityPolicy;
-  rv = IntegrityPolicy::ParseHeaders(headerValue, headerROValue, waict, mDocumentURI, 
+  rv = IntegrityPolicy::ParseHeaders(headerValue, headerROValue, waict,
+                                     mDocumentURI,
                                      getter_AddRefs(integrityPolicy));
   NS_ENSURE_SUCCESS(rv, rv);
 
