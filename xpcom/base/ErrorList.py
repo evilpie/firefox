@@ -363,6 +363,8 @@ with modules["NETWORK"]:
     # Used to indicate cases where we need to fall back from HTTP/2
     # to HTTP/1.1.
     errors["NS_ERROR_HTTP2_FALLBACK_TO_HTTP1"] = FAILURE(94)
+    # A protected URI was accessed without the required WAICT header.
+    errors["NS_ERROR_WAICT_VIOLATION"] = FAILURE(95)
 
     # XXX really need to better rationalize these error codes.  are consumers of
     # necko really expected to know how to discern the meaning of these??

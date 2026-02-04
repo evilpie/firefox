@@ -20,4 +20,7 @@ interface nsISiteIntegrityService : nsISupports
                        in ACString aHeader,
                        in const_OriginAttributesRef aOriginAttributes);
 
+    [noscript, must_use]
+    boolean isProtectedURI(in nsIURI aSourceURI,
+                           in const_OriginAttributesRef aOriginAttributes);
 };

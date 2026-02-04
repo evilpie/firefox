@@ -28,10 +28,9 @@ class SiteIntegrityService : public nsISiteIntegrityService {
 
  private:
   nsresult ParseHeader(const nsACString& aHeader);
-
-  nsresult HasMatchingHost(const nsACString& aHost,
-                           const OriginAttributes& aOriginAttributes,
-                           bool* outMatch);
+  nsresult GetStorageKeyFromURI(nsIURI* aURI,
+                                const OriginAttributes& aOriginAttributes,
+                                nsACString& outStorageKey);
 
   nsCOMPtr<nsIDataStorage> mDataStorage;
 };
