@@ -60,17 +60,14 @@ SiteIntegrityService::ProcessHeader(nsIURI* aSourceURI,
   }
 
   nsAutoCString storageKey;
-  rv = GetStorageKeyFromURI(aSourceURI, aOriginAttributes, storageKey);
+  nsIDataStorage::DataType storageType;
+  rv = GetStorageKeyFromURI(aSourceURI, aOriginAttributes, storageKey,
+                            &storageType);
   if (NS_FAILED(rv)) {
     MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning,
                 "Failed to get storage key: {:x}", static_cast<uint32_t>(rv));
     return rv;
   }
-
-  nsIDataStorage::DataType storageType =
-      aOriginAttributes.IsPrivateBrowsing()
-          ? nsIDataStorage::DataType::Private
-          : nsIDataStorage::DataType::Persistent;
 
   PRTime now = PR_Now();
   PRTime expirationTime = now + (static_cast<PRTime>(maxAge) * PR_USEC_PER_SEC);
@@ -183,7 +180,7 @@ static void GetStorageKey(const nsACString& aHostname,
 
 nsresult SiteIntegrityService::GetStorageKeyFromURI(
     nsIURI* aURI, const OriginAttributes& aOriginAttributes,
-    nsACString& outStorageKey) {
+    nsACString& outStorageKey, nsIDataStorage::DataType* outStorageType) {
   nsAutoCString host;
   nsresult rv = GetHost(aURI, host);
   if (NS_FAILED(rv)) {
@@ -195,6 +192,10 @@ nsresult SiteIntegrityService::GetStorageKeyFromURI(
   nsAutoCString storageKey;
   GetStorageKey(host, aOriginAttributes, storageKey);
   outStorageKey.Assign(storageKey);
+
+  *outStorageType = aOriginAttributes.IsPrivateBrowsing()
+                        ? nsIDataStorage::DataType::Private
+                        : nsIDataStorage::DataType::Persistent;
 
   MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Verbose,
               "Generated storage key: {} for host: {}", storageKey, host);
@@ -212,18 +213,15 @@ SiteIntegrityService::IsProtectedURI(nsIURI* aURI,
   *outMatch = false;
 
   nsAutoCString storageKey;
-  nsresult rv = GetStorageKeyFromURI(aURI, aOriginAttributes, storageKey);
+  nsIDataStorage::DataType storageType;
+  nsresult rv =
+      GetStorageKeyFromURI(aURI, aOriginAttributes, storageKey, &storageType);
   if (NS_FAILED(rv)) {
     MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning,
                 "IsProtectedURI: Failed to get storage key: {:x}",
                 static_cast<uint32_t>(rv));
     return rv;
   }
-
-  nsIDataStorage::DataType storageType =
-      aOriginAttributes.IsPrivateBrowsing()
-          ? nsIDataStorage::DataType::Private
-          : nsIDataStorage::DataType::Persistent;
 
   MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Verbose,
               "IsProtectedURI: Checking storage key: {}", storageKey);

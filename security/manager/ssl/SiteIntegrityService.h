@@ -30,7 +30,8 @@ class SiteIntegrityService : public nsISiteIntegrityService {
   nsresult ParseHeader(const nsACString& aHeader, uint64_t* outMaxAge);
   nsresult GetStorageKeyFromURI(nsIURI* aURI,
                                 const OriginAttributes& aOriginAttributes,
-                                nsACString& outStorageKey);
+                                nsACString& outStorageKey,
+                                nsIDataStorage::DataType* outStorageType);
 
   nsCOMPtr<nsIDataStorage> mDataStorage;
 };
