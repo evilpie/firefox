@@ -120,7 +120,7 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
   nsCOMPtr<nsIURI> mDocumentURI;
   nsCString mWaictManifestURL;
   // XXX We should not use this directly.
-  WAICTMAnifest mWaictManifest;
+  WAICTManifest mWaictManifest;
   RefPtr<WAICTManifestLoadedPromise::Private> mWAICTPromise;
 };
 }  // namespace dom

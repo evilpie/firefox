@@ -5,7 +5,7 @@
  */
 
 [GenerateInitFromJSON]
-dictionary WAICTMAnifest {
+dictionary WAICTManifest {
   required unsigned long version;
   required DOMString integrity-policy;
   required DOMString bt-server;

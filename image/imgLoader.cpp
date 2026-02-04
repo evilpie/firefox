@@ -3099,7 +3099,12 @@ ProxyListener::OnStopRequest(nsIRequest* aRequest, nsresult status) {
                 printf("ProxyListener::OnStopRequest: Correct hash \\o/\n");
                 return listener->OnStopRequest(request, status);
               },
-              [](bool) { printf("Failure\n"); });
+              [listener = nsCOMPtr{mDestListener},
+               request = nsCOMPtr{aRequest}](bool) {
+                MOZ_LOG(gWaictLog, LogLevel::Error,
+                        ("ProxyListener::OnStopRequest -- Promise rejected\n"));
+                return listener->OnStopRequest(request, NS_ERROR_FAILURE);
+              });
 
           return NS_OK;
         }
