@@ -7,6 +7,7 @@
 #include "mozilla/Logging.h"
 #include "mozilla/net/SFVService.h"
 #include "nsIDataStorage.h"
+#include "prtime.h"
 
 using namespace mozilla;
 
@@ -17,12 +18,14 @@ NS_IMPL_ISUPPORTS(SiteIntegrityService, nsISiteIntegrityService)
 SiteIntegrityService::~SiteIntegrityService() = default;
 
 nsresult SiteIntegrityService::Init() {
-  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug, "Initializing SiteIntegrityService");
+  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug,
+              "Initializing SiteIntegrityService");
 
   nsCOMPtr<nsIDataStorageManager> dataStorageManager(
       do_GetService("@mozilla.org/security/datastoragemanager;1"));
   if (!dataStorageManager) {
-    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning, "Failed to get DataStorageManager");
+    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning,
+                "Failed to get DataStorageManager");
     return NS_ERROR_FAILURE;
   }
 
@@ -31,11 +34,13 @@ nsresult SiteIntegrityService::Init() {
                               getter_AddRefs(mDataStorage)));
 
   if (!mDataStorage) {
-    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning, "Failed to get DataStorage");
+    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning,
+                "Failed to get DataStorage");
     return NS_ERROR_FAILURE;
   }
 
-  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug, "SiteIntegrityService initialized successfully");
+  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug,
+              "SiteIntegrityService initialized successfully");
   return NS_OK;
 }
 
@@ -43,10 +48,11 @@ NS_IMETHODIMP
 SiteIntegrityService::ProcessHeader(nsIURI* aSourceURI,
                                     const nsACString& aHeader,
                                     const OriginAttributes& aOriginAttributes) {
-  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug,
-              "ProcessHeader: {}", PromiseFlatCString(aHeader));
+  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug, "ProcessHeader: {}",
+              PromiseFlatCString(aHeader));
 
-  nsresult rv = ParseHeader(aHeader);
+  uint64_t maxAge;
+  nsresult rv = ParseHeader(aHeader, &maxAge);
   if (NS_FAILED(rv)) {
     MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning,
                 "Failed to parse header: {:x}", static_cast<uint32_t>(rv));
@@ -66,60 +72,73 @@ SiteIntegrityService::ProcessHeader(nsIURI* aSourceURI,
           ? nsIDataStorage::DataType::Private
           : nsIDataStorage::DataType::Persistent;
 
-// Remember that we had a WAICT header for this load.
-  mDataStorage->Put(storageKey, "hello world"_ns, storageType);
+  PRTime now = PR_Now();
+  PRTime expirationTime = now + (static_cast<PRTime>(maxAge) * PR_USEC_PER_SEC);
 
-  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug, "Header processed successfully");
+  nsAutoCString expirationString;
+  expirationString.AppendInt(expirationTime);
+
+  mDataStorage->Put(storageKey, expirationString, storageType);
+
+  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug,
+              "Header processed successfully, expires at: {}", expirationTime);
   return NS_OK;
 }
 
-nsresult SiteIntegrityService::ParseHeader(const nsACString& aHeader) {
-  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Verbose, "Parsing header");
+static nsresult ParseMaxAge(nsISFVDictionary* aDict, uint64_t* outMaxAge) {
+  nsCOMPtr<nsISFVItemOrInnerList> maxAge;
+  MOZ_TRY(aDict->Get("max-age"_ns, getter_AddRefs(maxAge)));
+  if (nsCOMPtr<nsISFVItem> maxAgeItem = do_QueryInterface(maxAge)) {
+    nsCOMPtr<nsISFVBareItem> maxAgeValue;
+    MOZ_TRY(maxAgeItem->GetValue(getter_AddRefs(maxAgeValue)));
+    if (nsCOMPtr<nsISFVInteger> intVal = do_QueryInterface(maxAgeValue)) {
+      int64_t maxAgeSeconds;
+      MOZ_TRY(intVal->GetValue(&maxAgeSeconds));
+      if (maxAgeSeconds >= 0) {
+        *outMaxAge = maxAgeSeconds;
+        return NS_OK;
+      }
+    }
+  }
 
+  return NS_ERROR_FAILURE;
+}
+
+static nsresult ParseManifest(nsISFVDictionary* aDict,
+                              nsACString& outManifest) {
+  nsCOMPtr<nsISFVItemOrInnerList> manifest;
+  MOZ_TRY(aDict->Get("manifest"_ns, getter_AddRefs(manifest)));
+  if (nsCOMPtr<nsISFVItem> manifestItem = do_QueryInterface(manifest)) {
+    nsCOMPtr<nsISFVBareItem> value;
+    MOZ_TRY(manifestItem->GetValue(getter_AddRefs(value)));
+    if (nsCOMPtr<nsISFVString> stringVal = do_QueryInterface(value)) {
+      MOZ_TRY(stringVal->GetValue(outManifest));
+      if (!outManifest.IsEmpty()) {
+        return NS_OK;
+      }
+    }
+  }
+
+  return NS_ERROR_FAILURE;
+}
+
+nsresult SiteIntegrityService::ParseHeader(const nsACString& aHeader,
+                                           uint64_t* outMaxAge) {
   nsCOMPtr<nsISFVService> sfv = net::GetSFVService();
   NS_ENSURE_TRUE(sfv, NS_ERROR_FAILURE);
 
   nsCOMPtr<nsISFVDictionary> dict;
-  nsresult rv = sfv->ParseDictionary(aHeader, getter_AddRefs(dict));
+  MOZ_TRY(sfv->ParseDictionary(aHeader, getter_AddRefs(dict)));
 
-  if (NS_FAILED(rv)) {
-    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning,
-                "Failed to parse dictionary: {:x}", static_cast<uint32_t>(rv));
-    return rv;
-  }
+  uint64_t maxAge;
+  MOZ_TRY(ParseMaxAge(dict, &maxAge));
+  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug, "max-age: {}", maxAge);
 
-  nsCOMPtr<nsISFVItemOrInnerList> manifest;
-  rv = dict->Get("manifest"_ns, getter_AddRefs(manifest));
-  if (NS_FAILED(rv)) {
-    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning, "No manifest field in header");
-    return rv;
-  }
+  nsAutoCString manifest;
+  MOZ_TRY(ParseManifest(dict, manifest));
+  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug, "Manifest URL: {}", manifest);
 
-  nsCOMPtr<nsISFVItem> manifestItem = do_QueryInterface(manifest);
-  if (!manifestItem) {
-    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning, "Manifest is not an item");
-    return NS_ERROR_FAILURE;
-  }
-
-  nsCOMPtr<nsISFVBareItem> value;
-  MOZ_TRY(manifestItem->GetValue(getter_AddRefs(value)));
-
-  nsCOMPtr<nsISFVString> stringVal = do_QueryInterface(value);
-  if (!stringVal) {
-    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning, "Manifest value is not a string");
-    return NS_ERROR_FAILURE;
-  }
-
-  nsAutoCString manifestURL;
-  MOZ_TRY(stringVal->GetValue(manifestURL));
-
-  if (manifestURL.IsEmpty()) {
-    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning, "Manifest URL is empty");
-    return NS_ERROR_FAILURE;
-  }
-
-  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug, "Manifest URL: {}", manifestURL);
-
+  *outMaxAge = maxAge;
   return NS_OK;
 }
 
@@ -224,9 +243,37 @@ SiteIntegrityService::IsProtectedURI(nsIURI* aURI,
     return rv;
   }
 
-  *outMatch = !value.IsEmpty();
-  MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug,
-              "IsProtectedURI: Match result: {}", *outMatch);
+  if (value.IsEmpty()) {
+    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug,
+                "IsProtectedURI: Empty value found");
+    *outMatch = false;
+    return NS_OK;
+  }
+
+  nsresult conversionResult;
+  PRTime storedExpirationTime = value.ToInteger64(&conversionResult);
+  if (NS_FAILED(conversionResult)) {
+    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Warning,
+                "IsProtectedURI: Failed to parse expiration time");
+    *outMatch = false;
+    return NS_OK;
+  }
+
+  PRTime now = PR_Now();
+  bool isExpired = now >= storedExpirationTime;
+
+  if (isExpired) {
+    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug,
+                "IsProtectedURI: Entry has expired (now: {}, expiration: {})",
+                now, storedExpirationTime);
+    mDataStorage->Remove(storageKey, storageType);
+    *outMatch = false;
+  } else {
+    MOZ_LOG_FMT(gSiteIntegrityLog, LogLevel::Debug,
+                "IsProtectedURI: Entry is valid (now: {}, expiration: {})", now,
+                storedExpirationTime);
+    *outMatch = true;
+  }
 
   return NS_OK;
 }
