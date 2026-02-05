@@ -3103,7 +3103,7 @@ ProxyListener::OnStopRequest(nsIRequest* aRequest, nsresult status) {
                request = nsCOMPtr{aRequest}](bool) {
                 MOZ_LOG(gWaictLog, LogLevel::Error,
                         ("ProxyListener::OnStopRequest -- Promise rejected\n"));
-                return listener->OnStopRequest(request, NS_ERROR_FAILURE);
+                // return listener->OnStopRequest(request, NS_ERROR_FAILURE);
               });
 
           return NS_OK;
