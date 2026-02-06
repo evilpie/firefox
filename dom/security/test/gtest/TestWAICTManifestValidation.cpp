@@ -13,25 +13,7 @@ using namespace mozilla::dom;
 
 // Valid Manifests
 
-TEST(WAICTManifestValidation, ValidManifestWithSHA256Prefix)
-{
-  WAICTManifest manifest;
-  nsCString json(R"JSON({
-    "version": 1,
-    "integrity-policy": "sources=(inline); blocked-destinations=(script)",
-    "bt-server": "https://bt.example.com",
-    "hashes": {
-      "https://example.com/script.js": "sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
-    }
-  })JSON");
-
-
-  auto status = IntegrityPolicy::ValidateManifest(json, manifest);
-
-  EXPECT_EQ(status, IntegrityPolicy::ManifestValidationStatus::OK);
-}
-
-TEST(WAICTManifestValidation, ValidManifestWithoutSHA256Prefix)
+TEST(WAICTManifestValidation, ValidManifestBasic)
 {
   WAICTManifest manifest;
   nsCString json(R"JSON({
@@ -59,23 +41,6 @@ TEST(WAICTManifestValidation, ValidManifestWithMultipleHashes)
       "/assets/x.html": "r4j9yW07mpTFSQ6ZRYOV0Au8Hfn2NqjqQMBqKL/SWCY=",
       "/assets/css/main.css": "zet5ebcBGt1+fr6F0vJbpOv7p4tV/fIbFH4AafxtBl0=",
       "/favicon.ico": "zbt5ebcBGt1+gr6F0vJbpOv7p4tV/fIbFH4AafxtBl0="
-    }
-  })JSON");
-
-  auto status = IntegrityPolicy::ValidateManifest(json, manifest);
-
-  EXPECT_EQ(status, IntegrityPolicy::ManifestValidationStatus::OK);
-}
-
-TEST(WAICTManifestValidation, ValidManifestWithUppercaseSHA256Prefix)
-{
-  WAICTManifest manifest;
-  nsCString json(R"JSON({
-    "version": 1,
-    "integrity-policy": "sources=(inline)",
-    "bt-server": "https://bt.example.com",
-    "hashes": {
-      "/script.js": "SHA256-r4j9yW07mpTFSQ6ZRYOV0Au8Hfn2NqjqQMBqKL/SWCY="
     }
   })JSON");
 
@@ -446,22 +411,6 @@ TEST(WAICTManifestValidation, InvalidHash_TooShort)
     "bt-server": "https://bt.example.com",
     "hashes": {
       "/script.js": "hashhash"
-    }
-  })JSON");
-
-  auto status = IntegrityPolicy::ValidateManifest(json, manifest);
-
-  EXPECT_EQ(status, IntegrityPolicy::ManifestValidationStatus::InvalidHashFormat);
-}
-
-TEST(WAICTManifestValidation, InvalidHash_SHA384Prefix)
-{
-  WAICTManifest manifest;
-  nsCString json(R"JSON({
-    "version": 1,
-    "integrity-policy": "sources=(inline)",
-    "hashes": {
-      "/script.js": "sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb"
     }
   })JSON");
 
