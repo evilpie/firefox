@@ -150,6 +150,7 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
   RefPtr<WAICTManifestLoadedPromise::Private> mWAICTPromise;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   struct IPConsoleMsgQueueElem {
     uint32_t mErrorFlags;
     nsCString mCategory;
@@ -161,6 +162,9 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
   nsTArray<IPConsoleMsgQueueElem> mConsoleMsgQueue;
 =======
   // Hash tables for O(1) lookup performance with large manifests
+=======
+  // We translate the received un-JSONed arrays to hashmap/set
+>>>>>>> a380bdc56014 (Added some comments about checkhash function)
   nsTHashMap<nsString, nsString> mHashesLookup;
   nsTHashSet<nsString> mAnyHashesLookup;
 >>>>>>> 0911841d76d7 (Optimize manifest hash lookups with hash tables for O(1) performance)
