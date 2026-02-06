@@ -343,10 +343,10 @@ bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash,
   if (!mHashesLookup.IsEmpty()) {
     nsAutoCString path;
     // https://searchfox.org/firefox-main/source/netwerk/base/DefaultURI.cpp#135
-    // TODO: is it the best/correct way? 
+    // TODO: is it the best/correct way?
     nsresult rv = aURI->GetPathQueryRef(path);
     if (NS_SUCCEEDED(rv)) {
-      nsString* hashValue = mHashesLookup.Lookup(NS_ConvertUTF8toUTF16(path));
+      auto hashValue = mHashesLookup.Lookup(NS_ConvertUTF8toUTF16(path));
 
       if (hashValue) {
         // Found in path-based hashes, validate the hash value
@@ -606,7 +606,6 @@ NS_IMETHODIMP IntegrityPolicy::OnStreamComplete(nsIStreamLoader* aLoader,
   if (mWaictManifest.mHashes.WasPassed()) {
     const auto& entries = mWaictManifest.mHashes.Value().Entries();
     mHashesLookup.Clear();
-    mHashesLookup.Reserve(entries.Length());
     for (const auto& entry : entries) {
       mHashesLookup.InsertOrUpdate(entry.mKey, entry.mValue);
     }
@@ -619,7 +618,6 @@ NS_IMETHODIMP IntegrityPolicy::OnStreamComplete(nsIStreamLoader* aLoader,
   if (mWaictManifest.mAny_hashes.WasPassed()) {
     const auto& hashes = mWaictManifest.mAny_hashes.Value();
     mAnyHashesLookup.Clear();
-    mAnyHashesLookup.Reserve(hashes.Length());
     for (const auto& hash : hashes) {
       mAnyHashesLookup.Insert(hash);
     }

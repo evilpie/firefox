@@ -16,6 +16,9 @@
 #include "nsIIntegrityPolicy.h"
 #include "nsIStreamLoader.h"
 #include "nsTArray.h"
+#include "nsTHashMap.h"
+#include "nsTHashSet.h"
+#include "nsHashKeys.h"
 
 #define NS_INTEGRITYPOLICY_CONTRACTID "@mozilla.org/integritypolicy;1"
 
@@ -149,8 +152,6 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
   Destinations mWaictDestinations;
   RefPtr<WAICTManifestLoadedPromise::Private> mWAICTPromise;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
   struct IPConsoleMsgQueueElem {
     uint32_t mErrorFlags;
     nsCString mCategory;
@@ -160,14 +161,9 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
 
   bool mQueueUpMessages = true;
   nsTArray<IPConsoleMsgQueueElem> mConsoleMsgQueue;
-=======
   // Hash tables for O(1) lookup performance with large manifests
-=======
-  // We translate the received un-JSONed arrays to hashmap/set
->>>>>>> a380bdc56014 (Added some comments about checkhash function)
   nsTHashMap<nsString, nsString> mHashesLookup;
   nsTHashSet<nsString> mAnyHashesLookup;
->>>>>>> 0911841d76d7 (Optimize manifest hash lookups with hash tables for O(1) performance)
 };
 
 }  // namespace dom
