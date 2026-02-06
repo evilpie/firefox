@@ -149,6 +149,7 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
   Destinations mWaictDestinations;
   RefPtr<WAICTManifestLoadedPromise::Private> mWAICTPromise;
 
+<<<<<<< HEAD
   struct IPConsoleMsgQueueElem {
     uint32_t mErrorFlags;
     nsCString mCategory;
@@ -158,6 +159,11 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
 
   bool mQueueUpMessages = true;
   nsTArray<IPConsoleMsgQueueElem> mConsoleMsgQueue;
+=======
+  // Hash tables for O(1) lookup performance with large manifests
+  nsTHashMap<nsString, nsString> mHashesLookup;
+  nsTHashSet<nsString> mAnyHashesLookup;
+>>>>>>> 0911841d76d7 (Optimize manifest hash lookups with hash tables for O(1) performance)
 };
 
 }  // namespace dom

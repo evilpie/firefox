@@ -339,76 +339,82 @@ bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash,
               "IntegrityPolicy::CheckHash aURI = {} aHash = {}",
               aURI->GetSpecOrDefault().get(), nsCString(aHash).get());
 
-  nsCString uriSpec = aURI->GetSpecOrDefault();
-
-  if (!mWaictManifest.mHashes.WasPassed()) {
+  if (mHashesLookup.IsEmpty() && mAnyHashesLookup.IsEmpty()) {
     MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
                 "IntegrityPolicy::CheckHash: No hashes in manifest");
     return false;
   }
 
-  for (auto& entry : mWaictManifest.mHashes.Value().Entries()) {
-    nsCOMPtr<nsIURI> uri;
-    NS_NewURI(getter_AddRefs(uri), entry.mKey, nullptr, mDocumentURI);
+  // First, try path-based lookup in hashes
+  if (!mHashesLookup.IsEmpty()) {
+    // Get the path from the URI to use as lookup key
+    nsAutoCString path;
+    nsresult rv = aURI->GetPathQueryRef(path);
+    if (NS_SUCCEEDED(rv)) {
+      // Try relative path lookup first
+      nsString* hashValue = mHashesLookup.Lookup(NS_ConvertUTF8toUTF16(path));
 
-    if (!uri) {
-      MOZ_LOG_FMT(gWaictLog, LogLevel::Warning,
-                  "IntegrityPolicy::CheckHash: Failed to parse URL");
-      if (aDocument) {
-        nsTArray<nsString> params = {entry.mKey};
-        nsContentUtils::ReportToConsole(nsIScriptError::warningFlag, "WAICT"_ns,
-                                        aDocument,
-                                        nsContentUtils::eSECURITY_PROPERTIES,
-                                        "WAICTManifestURLParseError", params);
+      // If not found, try full spec
+      if (!hashValue) {
+        nsAutoCString spec;
+        rv = aURI->GetSpec(spec);
+        if (NS_SUCCEEDED(rv)) {
+          hashValue = mHashesLookup.Lookup(NS_ConvertUTF8toUTF16(spec));
+        }
       }
-      continue;
-    }
 
-    bool equal = false;
-    uri->Equals(aURI, &equal);
-    if (!equal) {
-      continue;
-    }
+      if (hashValue) {
+        // Found in path-based hashes, validate the hash value
+        nsCString base64Part;
+        nsCString hashEntry = NS_ConvertUTF16toUTF8(*hashValue);
+        // SRI hash format
+        if (StringBeginsWith(hashEntry, "sha256-"_ns) ||
+            StringBeginsWith(hashEntry, "SHA256-"_ns)) {
+          base64Part = Substring(hashEntry, strlen("sha256-"));
+        } else {
+          base64Part = hashEntry;
+        }
 
-    nsCString base64Part;
-    nsCString hashEntry = NS_ConvertUTF16toUTF8(entry.mValue);
-    // SRI hash format
-    if (StringBeginsWith(hashEntry, "sha256-"_ns) ||
-        StringBeginsWith(hashEntry, "SHA256-"_ns)) {
-      base64Part = Substring(hashEntry, strlen("sha256-"));
-    } else {
-      base64Part = hashEntry;
-    }
+        if (base64Part != aHash) {
+          MOZ_LOG_FMT(gWaictLog, LogLevel::Warning,
+                      "IntegrityPolicy::CheckHash: Wrong hash for path ({} != {})",
+                      hashEntry.get(), nsCString(aHash).get());
+          return false;
+        }
 
-    if (base64Part != aHash) {
-      MOZ_LOG_FMT(gWaictLog, LogLevel::Warning,
-                  "IntegrityPolicy::CheckHash: Wrong hash ({} != {})",
-                  NS_ConvertUTF16toUTF8(entry.mValue), nsCString(aHash));
-      if (aDocument) {
-        nsTArray<nsString> params = {NS_ConvertUTF8toUTF16(uriSpec),
-                                     NS_ConvertUTF8toUTF16(hashEntry),
-                                     NS_ConvertUTF8toUTF16(aHash)};
-        nsContentUtils::ReportToConsole(
-            nsIScriptError::errorFlag, "WAICT"_ns, aDocument,
-            nsContentUtils::eSECURITY_PROPERTIES, "WAICTHashMismatch", params);
+        MOZ_LOG_FMT(gWaictLog, LogLevel::Info,
+                    "IntegrityPolicy::CheckHash: Correct hash (path-based)");
+        return true;
       }
-      return false;
+    }
+  }
+
+  // If not found in path-based hashes, check any_hashes
+  if (!mAnyHashesLookup.IsEmpty()) {
+    nsString hashStr = NS_ConvertUTF8toUTF16(aHash);
+
+    // Check direct match first
+    if (mAnyHashesLookup.Contains(hashStr)) {
+      MOZ_LOG_FMT(gWaictLog, LogLevel::Info,
+                  "IntegrityPolicy::CheckHash: Hash found in any_hashes");
+      return true;
     }
 
-    MOZ_LOG_FMT(gWaictLog, LogLevel::Info,
-                "IntegrityPolicy::CheckHash: Correct hash", aHash);
-    return true;
+    // Try with sha256- prefix if not already present
+    if (!StringBeginsWith(aHash, "sha256-"_ns) &&
+        !StringBeginsWith(aHash, "SHA256-"_ns)) {
+      nsString prefixedHash = u"sha256-"_ns + hashStr;
+      if (mAnyHashesLookup.Contains(prefixedHash)) {
+        MOZ_LOG_FMT(gWaictLog, LogLevel::Info,
+                    "IntegrityPolicy::CheckHash: Hash found in any_hashes (with prefix)");
+        return true;
+      }
+    }
   }
 
   MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
-              "IntegrityPolicy::CheckHash: URL not found");
-  if (aDocument) {
-    nsTArray<nsString> params = {NS_ConvertUTF8toUTF16(uriSpec)};
-    nsContentUtils::ReportToConsole(nsIScriptError::errorFlag, "WAICT"_ns,
-                                    aDocument,
-                                    nsContentUtils::eSECURITY_PROPERTIES,
-                                    "WAICTResourceNotInManifest", params);
-  }
+              "IntegrityPolicy::CheckHash: Hash not found in either lookup");
+>>>>>>> 0911841d76d7 (Optimize manifest hash lookups with hash tables for O(1) performance)
   return false;
 }
 
@@ -635,6 +641,29 @@ NS_IMETHODIMP IntegrityPolicy::OnStreamComplete(nsIStreamLoader* aLoader,
       wgc->SendSetSiteIntegrityProtected(WrapNotNull(mDocumentURI.get()),
                                          mWaictMaxAge);
     }
+  }
+
+  // Build hash tables for O(1) lookup performance
+  if (mWaictManifest.mHashes.WasPassed()) {
+    const auto& entries = mWaictManifest.mHashes.Value().Entries();
+    mHashesLookup.Clear();
+    mHashesLookup.Reserve(entries.Length());
+    for (const auto& entry : entries) {
+      mHashesLookup.InsertOrUpdate(entry.mKey, entry.mValue);
+    }
+    MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
+                "Built hash lookup table with {} entries", entries.Length());
+  }
+
+  if (mWaictManifest.mAny_hashes.WasPassed()) {
+    const auto& hashes = mWaictManifest.mAny_hashes.Value();
+    mAnyHashesLookup.Clear();
+    mAnyHashesLookup.Reserve(hashes.Length());
+    for (const auto& hash : hashes) {
+      mAnyHashesLookup.Insert(hash);
+    }
+    MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
+                "Built any_hashes lookup set with {} entries", hashes.Length());
   }
 
   MOZ_LOG_FMT(gWaictLog, LogLevel::Info, "Got manifest, version={}",
