@@ -8,7 +8,9 @@
 dictionary WAICTManifest {
   required unsigned long version;
   required DOMString integrity-policy;
-  required DOMString bt-server;
-  required record<DOMString, DOMString> hashes;
-  DOMString metadata = "";
+  DOMString bt-server;
+  record<DOMString, DOMString> hashes;
+  sequence<DOMString> any_hashes;
+  DOMString resource_delimiter;
+  DOMString transparency_proof;
 };

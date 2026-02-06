@@ -341,7 +341,13 @@ bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash,
 
   nsCString uriSpec = aURI->GetSpecOrDefault();
 
-  for (auto& entry : mWaictManifest.mHashes.Entries()) {
+  if (!mWaictManifest.mHashes.WasPassed()) {
+    MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
+                "IntegrityPolicy::CheckHash: No hashes in manifest");
+    return false;
+  }
+
+  for (auto& entry : mWaictManifest.mHashes.Value().Entries()) {
     nsCOMPtr<nsIURI> uri;
     NS_NewURI(getter_AddRefs(uri), entry.mKey, nullptr, mDocumentURI);
 
@@ -536,34 +542,63 @@ static bool ValidateHashValue(const nsAString& aHash) {
   return true;
 }
 
-IntegrityPolicy::ManifestValidationStatus IntegrityPolicy::ValidateManifest(
-    const nsACString& aManifestJSON, WAICTManifest& aOutManifest) {
+bool ValidateHashes(const Record<nsString, nsString>& aHashes) {
+  for (const auto& entry : aHashes.Entries()) {
+    if (entry.mKey.IsEmpty() || entry.mValue.IsEmpty() ||
+        !ValidateHashValue(entry.mValue)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+bool ValidateAnyHashes(const Sequence<nsString>& aAnyHashes) {
+  for (const auto& hash : aAnyHashes) {
+    if (hash.IsEmpty() || !ValidateHashValue(hash)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+IntegrityPolicy::ManifestValidationStatus
+IntegrityPolicy::ValidateManifest(const nsACString& aManifestJSON,
+                                          WAICTManifest& aOutManifest) {
   if (!aOutManifest.Init(NS_ConvertUTF8toUTF16(aManifestJSON))) {
-    ReportOrQueueMessage(nsIScriptError::errorFlag, "WAICT"_ns,
-                         "WAICTManifestJSONParseError", {});
+    // ReportOrQueueMessage(nsIScriptError::errorFlag, "WAICT"_ns,
+    //                      "WAICTManifestJSONParseError", {});
     return ManifestValidationStatus::InvalidJSON;
   }
 
   // Only the version 1 is supported for now.
   if (aOutManifest.mVersion != 1) {
-    ReportOrQueueMessage(nsIScriptError::errorFlag, "WAICT"_ns,
-                         "WAICTManifestJSONParseError", {});
+    // ReportOrQueueMessage(nsIScriptError::errorFlag, "WAICT"_ns,
+    //                      "WAICTManifestJSONParseError", {});
     return ManifestValidationStatus::InvalidVersion;
   }
 
-  // Could integrity policy be empty?
-  // if (aOutManifest.mIntegrityPolicy.IsEmpty()) {
-  //   return ManifestValidationStatus::MissingIntegrityPolicy;
-  // }
+  // Note: Duplicate keys in the hashes record are impossible - the JSON parser
+  // and record<> type automatically keep only the last value for duplicate keys.
+  // At least one of hashes or any_hashes must be present and non-empty
+  bool hasHashes = aOutManifest.mHashes.WasPassed() &&
+                   !aOutManifest.mHashes.Value().Entries().IsEmpty();
+  bool hasAnyHashes = aOutManifest.mAny_hashes.WasPassed() &&
+                      !aOutManifest.mAny_hashes.Value().IsEmpty();
 
-  for (const auto& entry : aOutManifest.mHashes.Entries()) {
-    if (entry.mKey.IsEmpty() || entry.mValue.IsEmpty() ||
-        !ValidateHashValue(entry.mValue)) {
-      nsTArray<nsString> params = {entry.mKey, entry.mValue};
-      ReportOrQueueMessage(nsIScriptError::errorFlag, "WAICT"_ns,
-                           "WAICTManifestInvalidHash", params);
-      return ManifestValidationStatus::InvalidHashFormat;
-    }
+  if (!hasHashes && !hasAnyHashes) {
+    return ManifestValidationStatus::MissingHashes;
+  }
+
+  // Validate hashes if present
+  if (hasHashes && !ValidateHashes(aOutManifest.mHashes.Value())) {
+    return ManifestValidationStatus::InvalidHashFormat;
+  }
+
+  // Validate any_hashes if present
+  if (hasAnyHashes && !ValidateAnyHashes(aOutManifest.mAny_hashes.Value())) {
+    return ManifestValidationStatus::InvalidHashFormat;
   }
 
   return ManifestValidationStatus::OK;

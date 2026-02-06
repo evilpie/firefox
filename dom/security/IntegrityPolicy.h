@@ -89,6 +89,18 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
   bool CheckHash(nsIURI* aURI, const nsACString& aHash,
                  Document* aDocument = nullptr);
 
+  enum class ManifestValidationStatus : uint8_t {
+    OK,
+    InvalidJSON,
+    MissingVersion,
+    InvalidVersion,
+    MissingHashes,
+    InvalidHashFormat
+  };
+
+  static ManifestValidationStatus ValidateManifest(
+      const nsACString& aManifestJSON, WAICTManifest& aOutManifest);
+
  protected:
   virtual ~IntegrityPolicy();
 
@@ -97,16 +109,6 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
                       Document* aDocument);
   void FetchWaictManifest();
 
-  enum class ManifestValidationStatus : uint8_t {
-    OK,
-    InvalidJSON,
-    MissingVersion,
-    InvalidVersion,
-    InvalidHashFormat
-  };
-
-  ManifestValidationStatus ValidateManifest(const nsACString& aManifestJSON,
-                                            WAICTManifest& aOutManifest);
 
   void ReportOrQueueMessage(uint32_t aErrorFlags, const nsACString& aCategory,
                             const char* aMessageName,
@@ -157,6 +159,7 @@ class IntegrityPolicy : public nsIIntegrityPolicy,
   bool mQueueUpMessages = true;
   nsTArray<IPConsoleMsgQueueElem> mConsoleMsgQueue;
 };
+
 }  // namespace dom
 
 template <>
