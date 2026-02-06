@@ -365,17 +365,9 @@ bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash,
 
       if (hashValue) {
         // Found in path-based hashes, validate the hash value
-        nsCString base64Part;
         nsCString hashEntry = NS_ConvertUTF16toUTF8(*hashValue);
-        // SRI hash format
-        if (StringBeginsWith(hashEntry, "sha256-"_ns) ||
-            StringBeginsWith(hashEntry, "SHA256-"_ns)) {
-          base64Part = Substring(hashEntry, strlen("sha256-"));
-        } else {
-          base64Part = hashEntry;
-        }
 
-        if (base64Part != aHash) {
+        if (hashEntry != aHash) {
           MOZ_LOG_FMT(gWaictLog, LogLevel::Warning,
                       "IntegrityPolicy::CheckHash: Wrong hash for path ({} != {})",
                       hashEntry.get(), nsCString(aHash).get());
@@ -393,28 +385,15 @@ bool IntegrityPolicy::CheckHash(nsIURI* aURI, const nsACString& aHash,
   if (!mAnyHashesLookup.IsEmpty()) {
     nsString hashStr = NS_ConvertUTF8toUTF16(aHash);
 
-    // Check direct match first
     if (mAnyHashesLookup.Contains(hashStr)) {
       MOZ_LOG_FMT(gWaictLog, LogLevel::Info,
                   "IntegrityPolicy::CheckHash: Hash found in any_hashes");
       return true;
     }
-
-    // Try with sha256- prefix if not already present
-    if (!StringBeginsWith(aHash, "sha256-"_ns) &&
-        !StringBeginsWith(aHash, "SHA256-"_ns)) {
-      nsString prefixedHash = u"sha256-"_ns + hashStr;
-      if (mAnyHashesLookup.Contains(prefixedHash)) {
-        MOZ_LOG_FMT(gWaictLog, LogLevel::Info,
-                    "IntegrityPolicy::CheckHash: Hash found in any_hashes (with prefix)");
-        return true;
-      }
-    }
   }
 
   MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
               "IntegrityPolicy::CheckHash: Hash not found in either lookup");
->>>>>>> 0911841d76d7 (Optimize manifest hash lookups with hash tables for O(1) performance)
   return false;
 }
 
@@ -516,32 +495,23 @@ bool IsValidBase64(const nsACString& aBase64) {
 // We accept both "sha256-<base64>" and "<base64>" formats
 static bool ValidateHashValue(const nsAString& aHash) {
   NS_ConvertUTF16toUTF8 hash(aHash);
-  nsCString base64Part;
 
-  // SRI hash format
-  if (StringBeginsWith(hash, "sha256-"_ns) ||
-      StringBeginsWith(hash, "SHA256-"_ns)) {
-    base64Part = Substring(hash, strlen("sha256-"));
-  } else {
-    base64Part = hash;
-  }
-
-  if (!IsValidBase64(base64Part)) {
+  if (!IsValidBase64(hash)) {
     return false;
   }
 
   // SHA-256 produces 32 bytes -> 43 or 44 chars in base64
-  if (base64Part.Length() != 43 && base64Part.Length() != 44) {
+  if (hash.Length() != 43 && hash.Length() != 44) {
     return false;
   }
 
   // If 44 chars, must end with exactly one '='
-  if (base64Part.Length() == 44 && base64Part[43] != '=') {
+  if (hash.Length() == 44 && hash[43] != '=') {
     return false;
   }
 
   // If 43 chars, must not contain '='
-  if (base64Part.Length() == 43 && base64Part.Contains('=')) {
+  if (hash.Length() == 43 && hash.Contains('=')) {
     return false;
   }
 
