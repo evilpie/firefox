@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "integrity-policy": "sources=(inline)",
+  "hashes": {
+    "/waict/resources/red-panda.webp": "jicczQucQspWeG4z3WHs+LhHR/DlWmICcvr+Bv4rLU4=",
+    "/waict/resources/red-panda.webp?test=wrongHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  }
+}

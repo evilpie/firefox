@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WAICT: Image tests with enforce mode</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="/reporting/resources/report-helper.js"></script>
+<body>
+<script>
+  // Helper function to set up ReportingObserver for integrity violations
+  function setupIntegrityViolationObserver(t) {
+    const reports = [];
+    const observer = new ReportingObserver((reportList) => {
+      reports.push(...reportList);
+    }, {types: ['integrity-violation']});
+    observer.observe();
+    t.add_cleanup(() => observer.disconnect());
+    return reports;
+  }
+
+  // Test correct image hash behavior:    
+  // Check that:                                                      
+  // - Image loads successfully                                                      
+  // - No integrity violation reports generated  
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    const loadPromise = new Promise((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Image failed to load'));
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/red-panda.webp';
+
+    await loadPromise;
+    assert_true(img.complete, 'Image should load successfully when hash matches');
+
+    // Wait a bit to ensure no reports are generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Verify NO integrity violation reports were generated
+    assert_equals(reports.length, 0, 'Should not generate any integrity violation reports for correct hash');
+  }, 'Image with correct hash should load without generating reports (enforce mode)');
+
+  // In this test case we are trying to load an image. The image has an incorrect hash in the manifest
+
+  // Test correct image hash behavior:    
+  // Check that:                                                      
+  // - Image loading failed                                                      
+  // - Integrity violation report is generated with the correct error. 
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    let imageResult = null; // 'loaded' or 'failed'
+
+    // Wrong hash - image should fail loading
+    // AW: In audit and above we have a different promise:
+    // according to that logic img.onload = () => will reject the promise
+    // But as I had problems with the reporting api we resolve everything
+    const imagePromise = new Promise((resolve) => {
+      img.onload = () => {
+        imageResult = 'loaded';
+        resolve();
+      };
+      img.onerror = () => {
+        imageResult = 'failed';
+        resolve();
+      };
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/red-panda.webp?test=wrongHash';
+
+    await imagePromise;
+
+    // Wait a bit for reports
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // In enforce mode, image should be blocked
+    assert_equals(imageResult, 'failed', 'Image should be blocked in enforce mode when hash does not match');
+
+    // Check integrity violation reports (when implemented)
+    if (reports.length > 0) {
+      const report = reports[0];
+      assert_equals(report.type, 'integrity-violation', 'Report type should be integrity-violation');
+      assert_true(report.body.blockedURL.includes('red-panda.webp'), 'Report should reference the blocked image');
+      assert_false(report.body.reportOnly || false, 'Report should not be report-only in enforce mode');
+    }
+  }, 'Image with wrong hash should fail to load and generate hash mismatch error (enforce mode)');
+</script>
+</body>
