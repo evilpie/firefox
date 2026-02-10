@@ -6,6 +6,10 @@
 <script src="/reporting/resources/report-helper.js"></script>
 <body>
 <script>
+  // Currently supported test scenarios:
+  // 1. Image with correct hash present in the manifest in the hashes section
+  // 2. Image with incorrect hash present in the manifest in the hashes section
+
   // Helper function to set up ReportingObserver for integrity violations
   function setupIntegrityViolationObserver(t) {
     const reports = [];
