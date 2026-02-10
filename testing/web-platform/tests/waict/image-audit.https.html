@@ -9,6 +9,9 @@
   // Currently supported test scenarios:
   // 1. Image with correct hash present in the manifest in the hashes section
   // 2. Image with incorrect hash present in the manifest in the hashes section
+  // 3. Image with hash present in the manifest in the any_hashes section
+  // 4. Image with incorrect hash in the any_hashes section
+  // 5. Image not present in the manifest at all
 
   // Helper function to set up ReportingObserver for integrity violations
   function setupIntegrityViolationObserver(t) {
@@ -21,7 +24,8 @@
     return reports;
   }
 
-  // Test correct image hash behavior:    
+  // Test 1: Image with a correct hash in manifest (hashes section):
+
   // Check that:                                                      
   // - Image loads successfully                                                      
   // - No integrity violation reports generated  
@@ -35,7 +39,7 @@
     });
 
     document.body.appendChild(img);
-    img.src = 'resources/red-panda.webp';
+    img.src = 'resources/correct.png';
 
     await loadPromise;
     assert_true(img.complete, 'Image should load successfully when hash matches');
@@ -48,12 +52,13 @@
   }, 'Image with correct hash should load without generating reports (audit mode)');
 
 
-  // In this test case we are trying to load an image. The image has an incorrect hash in the manifest
+  // Test 2: Image with an incorrect hash in manifest (hashes section):
   
   // Test incorrect image hash behavior:
   // Check that:
   // - Image loads successfully (audit mode doesn't block)
   // - Integrity violation report is generated
+  // TODO: Add a check with a correct exception for each test case. 
 
   // AW: the last one does not work, have I screwed up smth in the test? :(
   promise_test(async t => {
@@ -76,7 +81,7 @@
     });
 
     document.body.appendChild(img);
-    img.src = 'resources/red-panda.webp?test=wrongHash';
+    img.src = 'resources/incorrect.png';
 
     await loadPromise;
 
@@ -95,5 +100,116 @@
       assert_equals(report.body.reportOnly, true, 'Report should indicate this is report-only mode');
     }
   }, 'Image with wrong hash should still load but generate hash mismatch error (audit mode)');
+
+  // Test 3: Image with a correct hash in manifest (wildcard section):
+
+  // Check that:
+  // - Image loads successfully when hash is in any_hashes
+  // - No integrity violation reports generated
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    const loadPromise = new Promise((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Image failed to load'));
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/correct_wildcards.png';
+
+    await loadPromise;
+    assert_true(img.complete, 'Image should load successfully when hash is in any_hashes');
+
+    // Wait a bit to ensure no reports are generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Verify NO integrity violation reports were generated
+    assert_equals(reports.length, 0, 'Should not generate any integrity violation reports for hash in any_hashes');
+  }, 'Image with hash in any_hashes should load successfully (audit mode)');
+
+  // Test 4: Image with a incorrect hash in manifest (wildcard section):
+
+  // Check that:
+  // - Image loads successfully
+  // - Integrity violation report is generated
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    let imageResult = null;
+
+    const loadPromise = new Promise((resolve) => {
+      img.onload = () => {
+        imageResult = 'loaded';
+        resolve();
+      };
+      img.onerror = () => {
+        imageResult = 'failed';
+        resolve();
+      };
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/incorrect_wildcards.png';
+
+    await loadPromise;
+
+    // Wait a bit for reports
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // In audit mode, image SHOULD load even with wrong hash in any_hashes
+    assert_equals(imageResult, 'loaded', 'Image should load in audit mode even with wrong hash in any_hashes');
+
+    // Check integrity violation reports
+    if (reports.length > 0) {
+      const report = reports[0];
+      assert_equals(report.type, 'integrity-violation', 'Report type should be integrity-violation');
+      assert_true(report.body.blockedURL.includes('incorrect_wildcards.png'), 'Report should reference the image');
+      assert_equals(report.body.reportOnly, true, 'Report should indicate this is report-only mode');
+    }
+  }, 'Image with wrong hash in any_hashes should still load but generate violation (audit mode)');
+
+  // Test 5: Image not in manifest at all
+
+  // Check that:
+  // - Image loads successfully
+  // - Integrity violation report is generated
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    let imageResult = null;
+
+    const loadPromise = new Promise((resolve) => {
+      img.onload = () => {
+        imageResult = 'loaded';
+        resolve();
+      };
+      img.onerror = () => {
+        imageResult = 'failed';
+        resolve();
+      };
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/no_hash.png';
+
+    await loadPromise;
+
+    // Wait a bit for reports
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // In audit mode, image SHOULD load even when not in manifest
+    assert_equals(imageResult, 'loaded', 'Image should load in audit mode even when not in manifest');
+
+    // Check integrity violation reports
+    if (reports.length > 0) {
+      const report = reports[0];
+      assert_equals(report.type, 'integrity-violation', 'Report type should be integrity-violation');
+      assert_true(report.body.blockedURL.includes('no_hash.png'), 'Report should reference the image');
+      assert_equals(report.body.reportOnly, true, 'Report should indicate this is report-only mode');
+    }
+  }, 'Image not in manifest should still load but generate violation (audit mode)');
 </script>
 </body>

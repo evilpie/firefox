@@ -2,7 +2,11 @@
   "version": 1,
   "integrity-policy": "sources=(inline)",
   "hashes": {
-    "/waict/resources/red-panda.webp": "jicczQucQspWeG4z3WHs+LhHR/DlWmICcvr+Bv4rLU4=",
-    "/waict/resources/red-panda.webp?test=wrongHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-  }
+    "/waict/resources/correct.png": "gaZGzOUHI8LJf9wn43u7eYYBECYSYdh3omBjYNWbNME=",
+    "/waict/resources/incorrect.png": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  },
+  "any_hashes": [
+    "6mLlRtaWCQwiv8hTwx/o1wz1jd1//nf/QxbyvlNd3pE=",
+    "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
+  ]
 }
