@@ -46,9 +46,63 @@
     await new Promise(resolve => t.step_timeout(resolve, 100));
 
     // Check integrity violation reports
-    checkIntegrityViolationReport(reports, 'incorrect.js', true);
-
-
+    checkIntegrityViolationReport(reports, 'incorrect.js', false);
   }, 'Script with incorrect hash should fail to load (enforce mode)');
+
+  // Test 3: Script with correct hash in any_hashes
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy-enforce.html',
+      'correct_wildcards.js'
+    );
+
+    assert_true(result.loaded, 'Script should load successfully when hash is in any_hashes');
+    assert_true(result.ran, 'Script should execute');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    assert_equals(reports.length, 0, 'Should not generate any integrity violation reports for hash in any_hashes');
+  }, 'Script with hash in any_hashes should load successfully (enforce mode)');
+
+  // Test 4: Script with incorrect hash in any_hashes
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy-enforce.html',
+      'incorrect_wildcards.js'
+    );
+
+    assert_false(result.loaded, 'Script should be blocked when hash in any_hashes does not match');
+    assert_false(result.ran, 'Script should not execute when blocked');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'incorrect_wildcards.js', false);
+  }, 'Script with wrong hash in any_hashes should fail to load (enforce mode)');
+
+  // Test 5: Script not in manifest at all
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy-enforce.html',
+      'no_hash.js'
+    );
+
+    assert_false(result.loaded, 'Script should be blocked when not in manifest');
+    assert_false(result.ran, 'Script should not execute when blocked');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'no_hash.js', false);
+  }, 'Script not in manifest should fail to load (enforce mode)');
 </script>
 </body>

@@ -53,7 +53,63 @@
     await new Promise(resolve => t.step_timeout(resolve, 100));
 
     // Check integrity violation reports
-    checkIntegrityViolationReport(reports, 'incorrect.js', false);
+    checkIntegrityViolationReport(reports, 'incorrect.js', true);
   }, 'Script with incorrect hash should still load but generate violation (audit mode)');
+
+  // Test 3: Script with correct hash in any_hashes
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy.html',
+      'correct_wildcards.js'
+    );
+
+    assert_true(result.loaded, 'Script should load successfully when hash is in any_hashes');
+    assert_true(result.ran, 'Script should execute');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    assert_equals(reports.length, 0, 'Should not generate any integrity violation reports for hash in any_hashes');
+  }, 'Script with hash in any_hashes should load successfully (audit mode)');
+
+  // Test 4: Script with incorrect hash in any_hashes
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy.html',
+      'incorrect_wildcards.js'
+    );
+
+    assert_true(result.loaded, 'Script should load in audit mode even with wrong hash in any_hashes');
+    assert_true(result.ran, 'Script should execute in audit mode');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'incorrect_wildcards.js', true);
+  }, 'Script with wrong hash in any_hashes should still load but generate violation (audit mode)');
+
+  // Test 5: Script not in manifest at all
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy.html',
+      'no_hash.js'
+    );
+
+    assert_true(result.loaded, 'Script should load in audit mode even when not in manifest');
+    assert_true(result.ran, 'Script should execute in audit mode');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'no_hash.js', true);
+  }, 'Script not in manifest should still load but generate violation (audit mode)');
 </script>
 </body>
