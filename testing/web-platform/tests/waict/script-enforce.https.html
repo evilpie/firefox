@@ -107,5 +107,32 @@
     // Check integrity violation reports
     checkIntegrityViolationReport(reports, 'no_hash.js', false);
   }, 'Script not in manifest should fail to load (enforce mode)');
+
+  // Test 6: Script with broken manifest (missing integrity-policy field)
+  // {
+  //   [missing integrity policy header]
+  //   "hashes": {
+  //      the hash is still correct
+  //      "/waict/resources/correct.js": "9pA6JeWU8YRofiUMcGHi0BulJHCdtjrTuVE/59ukmmY="
+  //   }
+  // }
+  // TODO: Add error code
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-no-integrity-policy-enforce.html',
+      'correct.js'
+    );
+
+    assert_false(result.loaded, 'Script should be blocked when manifest is invalid in enforce mode');
+    assert_false(result.ran, 'Script should not execute when manifest is invalid in enforce mode');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'correct.js', false);
+  }, 'Script should fail to load when manifest is missing integrity-policy (enforce mode)');
 </script>
 </body>

@@ -1,0 +1,35 @@
+<!doctype html>
+<body>
+<div id="status">Script not executed</div>
+</body>
+<script>
+// Iframe with WAICT policy applied (manifest missing integrity-policy field)
+
+window.addEventListener('message', function(event) {
+  if (event.data.action === 'loadScript') {
+    window.ran = false;
+
+    const script = document.createElement('script');
+    script.onload = function() {
+      event.source.postMessage({
+        type: 'scriptResult',
+        loaded: true,
+        ran: window.ran
+      }, '*');
+    };
+    script.onerror = function() {
+      event.source.postMessage({
+        type: 'scriptResult',
+        loaded: false,
+        ran: window.ran
+      }, '*');
+    };
+    script.src = event.data.src;
+    document.body.appendChild(script);
+  }
+});
+
+if (window.parent !== window) {
+  window.parent.postMessage({type: 'ready'}, '*');
+}
+</script>

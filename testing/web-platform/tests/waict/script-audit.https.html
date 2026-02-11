@@ -12,6 +12,7 @@
       // 3. Script with hash present in the manifest in the any_hashes section
       // 4. Script with incorrect hash in the any_hashes section
       // 5. Script not present in the manifest at all
+      // 6. Wrong manifest - missing integrity policy
       
       // Test 1: Script with the correct hash in hashes is executed. 
       
@@ -90,21 +91,48 @@
       // Test 5: Script not in manifest at all
       // Test should return WAICTResourceNotInManifest.
       promise_test(async t => {
+        const reports = setupIntegrityViolationObserver(t);
+        
+        const result = await loadScriptInIframe(
+          'resources/iframe-with-policy-enforce.html',
+          'no_hash.js'
+        );
+        
+        assert_false(result.loaded, 'Script should be blocked when not in manifest');
+        assert_false(result.ran, 'Script should not execute when blocked');
+        
+        // Wait a bit for reports to be generated
+        await new Promise(resolve => t.step_timeout(resolve, 100));
+        
+        // Check integrity violation reports
+        checkIntegrityViolationReport(reports, 'no_hash.js', false);
+      }, 'Script not in manifest should fail to load (enforce mode)');
+
+     // Test 6: Script with broken manifest (missing integrity-policy field)
+     // {
+     //   [missing integrity policy header]
+     //   "hashes": {
+     //      the hash is still correct
+     //      "/waict/resources/correct.js": "9pA6JeWU8YRofiUMcGHi0BulJHCdtjrTuVE/59ukmmY="
+     //   }
+     // }
+     // TODO: Add error code
+    promise_test(async t => {
       const reports = setupIntegrityViolationObserver(t);
-      
+
       const result = await loadScriptInIframe(
-        'resources/iframe-with-policy-enforce.html',
-        'no_hash.js'
+        'resources/iframe-with-no-integrity-policy-enforce.html',
+        'correct.js'
       );
-      
-      assert_false(result.loaded, 'Script should be blocked when not in manifest');
-      assert_false(result.ran, 'Script should not execute when blocked');
-      
+
+      assert_true(result.loaded, 'Script should load even when manifest is invalid');
+      assert_true(result.ran, 'Script should execute when manifest is invalid');
+
       // Wait a bit for reports to be generated
       await new Promise(resolve => t.step_timeout(resolve, 100));
-      
+
       // Check integrity violation reports
-      checkIntegrityViolationReport(reports, 'no_hash.js', false);
-      }, 'Script not in manifest should fail to load (enforce mode)');
+      checkIntegrityViolationReport(reports, 'correct.js', false);
+    }, 'Script should load but generate violation when manifest is missing integrity-policy (enforce mode)');
    </script>
 </body>
