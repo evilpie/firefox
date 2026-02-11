@@ -4,6 +4,7 @@
 <script src="/resources/testharness.js"></script>
 <script src="/resources/testharnessreport.js"></script>
 <script src="/reporting/resources/report-helper.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
 <body>
 <script>
   // Currently supported test scenarios:
@@ -12,17 +13,6 @@
   // 3. Image with hash present in the manifest in the any_hashes section
   // 4. Image with incorrect hash in the any_hashes section
   // 5. Image not present in the manifest at all
-
-  // Helper function to set up ReportingObserver for integrity violations
-  function setupIntegrityViolationObserver(t) {
-    const reports = [];
-    const observer = new ReportingObserver((reportList) => {
-      reports.push(...reportList);
-    }, {types: ['integrity-violation']});
-    observer.observe();
-    t.add_cleanup(() => observer.disconnect());
-    return reports;
-  }
 
   // Test 1: Image with a correct hash in manifest (hashes section):
 
@@ -92,13 +82,9 @@
     assert_equals(imageResult, 'loaded', 'Image should load in audit mode even with wrong hash');
 
     // Check integrity violation reports
-    // AW: This does not work for now, I think I can not catch ReportToConsole as well? 
-    if (reports.length > 0) {
-      const report = reports[0];
-      assert_equals(report.type, 'integrity-violation', 'Report type should be integrity-violation');
-      assert_true(report.body.blockedURL.includes('red-panda.webp'), 'Report should reference the image');
-      assert_equals(report.body.reportOnly, true, 'Report should indicate this is report-only mode');
-    }
+    // here the checkIntegrityViolationReport could take an error code as an input
+    // but for now it's a TODO
+    checkIntegrityViolationReport(reports, 'incorrect.png', true);
   }, 'Image with wrong hash should still load but generate hash mismatch error (audit mode)');
 
   // Test 3: Image with a correct hash in manifest (wildcard section):
@@ -162,12 +148,7 @@
     assert_equals(imageResult, 'loaded', 'Image should load in audit mode even with wrong hash in any_hashes');
 
     // Check integrity violation reports
-    if (reports.length > 0) {
-      const report = reports[0];
-      assert_equals(report.type, 'integrity-violation', 'Report type should be integrity-violation');
-      assert_true(report.body.blockedURL.includes('incorrect_wildcards.png'), 'Report should reference the image');
-      assert_equals(report.body.reportOnly, true, 'Report should indicate this is report-only mode');
-    }
+    checkIntegrityViolationReport(reports, 'incorrect_wildcards.png', true);
   }, 'Image with wrong hash in any_hashes should still load but generate violation (audit mode)');
 
   // Test 5: Image not in manifest at all
@@ -204,12 +185,7 @@
     assert_equals(imageResult, 'loaded', 'Image should load in audit mode even when not in manifest');
 
     // Check integrity violation reports
-    if (reports.length > 0) {
-      const report = reports[0];
-      assert_equals(report.type, 'integrity-violation', 'Report type should be integrity-violation');
-      assert_true(report.body.blockedURL.includes('no_hash.png'), 'Report should reference the image');
-      assert_equals(report.body.reportOnly, true, 'Report should indicate this is report-only mode');
-    }
+    checkIntegrityViolationReport(reports, 'no_hash.png', true);
   }, 'Image not in manifest should still load but generate violation (audit mode)');
 </script>
 </body>

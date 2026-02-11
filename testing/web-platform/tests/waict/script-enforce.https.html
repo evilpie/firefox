@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WAICT: Script test with enforce mode</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
+<body>
+<script>
+
+    // Currently supported test scenarios:
+    // 1. Script with correct hash present in the manifest in the hashes section
+    // 2. Script with incorrect hash present in the manifest in the hashes section
+    // 3. Script with hash present in the manifest in the any_hashes section
+    // 4. Script with incorrect hash in the any_hashes section
+    // 5. Script not present in the manifest at all
+
+
+  promise_test(async t => {
+    // See script-audit.html
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy-enforce.html',
+      'correct.js'
+    );
+
+    assert_true(result.loaded, 'Script should load successfully');
+    assert_true(result.ran, 'Script should execute (window.ran should be true)');
+
+    assert_equals(reports.length, 0, 'Script run should not cause any report to be generated');
+    
+  }, 'Script with correct hash should load without generating reports (enforce mode)');
+
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy-enforce.html',
+      'incorrect.js'
+    );
+
+    assert_false(result.loaded, 'Script should be blocked in enforce mode when hash does not match');
+    assert_false(result.ran, 'Script should not execute when blocked');
+
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'incorrect.js', true);
+
+
+  }, 'Script with incorrect hash should fail to load (enforce mode)');
+</script>
+</body>

@@ -4,6 +4,7 @@
 <script src="/resources/testharness.js"></script>
 <script src="/resources/testharnessreport.js"></script>
 <script src="/reporting/resources/report-helper.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
 <body>
 <script>
   // Currently supported test scenarios:
@@ -12,17 +13,6 @@
   // 3. Image with hash present in the manifest in the any_hashes section
   // 4. Image with incorrect hash in the any_hashes section
   // 5. Image not present in the manifest at all
-
-  // Helper function to set up ReportingObserver for integrity violations
-  function setupIntegrityViolationObserver(t) {
-    const reports = [];
-    const observer = new ReportingObserver((reportList) => {
-      reports.push(...reportList);
-    }, {types: ['integrity-violation']});
-    observer.observe();
-    t.add_cleanup(() => observer.disconnect());
-    return reports;
-  }
 
   // Test 1: Image with a correct hash in manifest (hashes section):
 
@@ -88,13 +78,8 @@
     // In enforce mode, image should be blocked
     assert_equals(imageResult, 'failed', 'Image should be blocked in enforce mode when hash does not match');
 
-    // Check integrity violation reports (when implemented)
-    if (reports.length > 0) {
-      const report = reports[0];
-      assert_equals(report.type, 'integrity-violation', 'Report type should be integrity-violation');
-      assert_true(report.body.blockedURL.includes('red-panda.webp'), 'Report should reference the blocked image');
-      assert_false(report.body.reportOnly || false, 'Report should not be report-only in enforce mode');
-    }
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'incorrect.png', false);
   }, 'Image with wrong hash should fail to load and generate hash mismatch error (enforce mode)');
 
 
@@ -157,13 +142,8 @@
     // In enforce mode, image should be blocked
     assert_equals(imageResult, 'failed', 'Image should be blocked when hash in any_hashes does not match');
 
-    // Check integrity violation reports (when implemented)
-    if (reports.length > 0) {
-      const report = reports[0];
-      assert_equals(report.type, 'integrity-violation', 'Report type should be integrity-violation');
-      assert_true(report.body.blockedURL.includes('incorrect_wildcards.png'), 'Report should reference the blocked image');
-      assert_false(report.body.reportOnly || false, 'Report should not be report-only in enforce mode');
-    }
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'incorrect_wildcards.png', false);
   }, 'Image with wrong hash in any_hashes should fail to load (enforce mode)');
 
   // Test 5: Image not in manifest at all
@@ -198,13 +178,8 @@
     // In enforce mode, image should be blocked
     assert_equals(imageResult, 'failed', 'Image should be blocked when not in manifest');
 
-    // Check integrity violation reports (when implemented)
-    if (reports.length > 0) {
-      const report = reports[0];
-      assert_equals(report.type, 'integrity-violation', 'Report type should be integrity-violation');
-      assert_true(report.body.blockedURL.includes('no_hash.png'), 'Report should reference the blocked image');
-      assert_false(report.body.reportOnly || false, 'Report should not be report-only in enforce mode');
-    }
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'no_hash.png', false);
   }, 'Image not in manifest should fail to load (enforce mode)');
 </script>
 </body>

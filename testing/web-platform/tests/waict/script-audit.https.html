@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WAICT: Script test with audit mode</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
+<body>
+<script>
+
+    // Currently supported test scenarios:
+    // 1. Script with correct hash present in the manifest in the hashes section
+    // 2. Script with incorrect hash present in the manifest in the hashes section
+    // 3. Script with hash present in the manifest in the any_hashes section
+    // 4. Script with incorrect hash in the any_hashes section
+    // 5. Script not present in the manifest at all
+
+  // Test 1: Script with the correct hash in hashes is executed. 
+  promise_test(async t => {
+    // defines well the integrity violation observer
+    // defined in waict-test-helpers.js
+    const reports = setupIntegrityViolationObserver(t);
+    
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy.html',
+      'correct.js'
+    );
+
+    // audit mode, the scripts should load
+    assert_true(result.loaded, 'Script should load successfully');
+    assert_true(result.ran, 'Script should execute (window.ran should be true)');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    assert_equals(reports.length, 0, 'Script run should not cause any report to be generated');
+
+  }, 'Script with correct hash should load without generating reports (audit mode)');
+
+  // Test 2: Script with an incorrect hash in hashes is executed.
+  // AW: Currently this test fails and the script is not executed.
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-policy.html',
+      'incorrect.js'
+    );
+
+    assert_true(result.loaded, 'Script should load in audit mode even with wrong hash');
+    assert_true(result.ran, 'Script should execute in audit mode');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'incorrect.js', false);
+  }, 'Script with incorrect hash should still load but generate violation (audit mode)');
+</script>
+</body>
