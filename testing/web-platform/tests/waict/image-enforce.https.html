@@ -34,10 +34,7 @@
     await loadPromise;
     assert_true(img.complete, 'Image should load successfully when hash matches');
 
-    // Wait a bit to ensure no reports are generated
-    await new Promise(resolve => t.step_timeout(resolve, 100));
-
-    // Verify NO integrity violation reports were generated
+    // No reports should be generated for correct hash
     assert_equals(reports.length, 0, 'Should not generate any integrity violation reports for correct hash');
   }, 'Image with correct hash should load without generating reports (enforce mode)');
 
@@ -102,10 +99,7 @@
     await loadPromise;
     assert_true(img.complete, 'Image should load successfully when hash is in any_hashes');
 
-    // Wait a bit to ensure no reports are generated
-    await new Promise(resolve => t.step_timeout(resolve, 100));
-
-    // Verify NO integrity violation reports were generated
+    // No reports should be generated for correct hash in any_hashes
     assert_equals(reports.length, 0, 'Should not generate any integrity violation reports for hash in any_hashes');
   }, 'Image with hash in any_hashes should load successfully (enforce mode)');
 
