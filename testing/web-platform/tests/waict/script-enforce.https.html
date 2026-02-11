@@ -134,5 +134,28 @@
     // Check integrity violation reports
     checkIntegrityViolationReport(reports, 'correct.js', false);
   }, 'Script should fail to load when manifest is missing integrity-policy (enforce mode)');
+
+  // Test 7: Script with malformed header (missing mode parameter)
+  // Integrity-Policy-WAICT-v1: manifest="waict-manifest.json", blocked-destinations=(script)
+  // Missing required field "mode"
+  // TODO: Add error code
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const result = await loadScriptInIframe(
+      'resources/iframe-with-no-mode.html',
+      'correct.js'
+    );
+
+    // NB: the hash in the manifest is still correct
+    assert_false(result.loaded, 'Script should not load when header is missing field in the header');
+    assert_false(result.ran, 'Script should not execute when header is missing field in the header');
+
+    // Wait a bit for reports to be generated
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'correct.js', false);
+  }, 'Script should not load and generate violation when header is missing a header field');
 </script>
 </body>
