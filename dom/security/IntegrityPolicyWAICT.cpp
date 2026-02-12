@@ -60,20 +60,16 @@ bool IntegrityPolicyWAICT::MaybeCheckResourceIntegrity(
     return true;
   }
 
-  if (!mHashesLookup.IsEmpty()) {
+  if (!mHashes.IsEmpty()) {
     nsAutoCString path;
     nsresult rv = aURI->GetPathQueryRef(path);
     if (NS_SUCCEEDED(rv)) {
-      auto hashValue = mHashesLookup.Lookup(NS_ConvertUTF8toUTF16(path));
-
-      if (hashValue) {
-        nsCString hashEntry = NS_ConvertUTF16toUTF8(*hashValue);
-
-        if (hashEntry != aHash) {
+      if (auto hashValue = mHashes.Lookup(path)) {
+        if (*hashValue != aHash) {
           MOZ_LOG_FMT(gWaictLog, LogLevel::Warning,
                       "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Wrong hash for path "
                       "({} != {})",
-                      hashEntry.get(), nsCString(aHash).get());
+                      *hashValue, nsCString(aHash));
           return false;
         }
 
@@ -85,10 +81,8 @@ bool IntegrityPolicyWAICT::MaybeCheckResourceIntegrity(
     }
   }
 
-  if (!mAnyHashesLookup.IsEmpty()) {
-    nsString hashStr = NS_ConvertUTF8toUTF16(aHash);
-
-    if (mAnyHashesLookup.Contains(hashStr)) {
+  if (!mAnyHashes.IsEmpty()) {
+    if (mAnyHashes.Contains(aHash)) {
       MOZ_LOG_FMT(gWaictLog, LogLevel::Info,
                   "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Hash found in any_hashes");
       return true;
@@ -270,8 +264,7 @@ IntegrityPolicyWAICT::ValidateManifest(const nsACString& aManifestJSON,
 
   if (hasHashes) {
     for (const auto& entry : aOutManifest.mHashes.Value().Entries()) {
-      if (entry.mKey.IsEmpty() || entry.mValue.IsEmpty() ||
-          !ValidateHashValue(entry.mValue)) {
+      if (entry.mKey.IsEmpty() || !ValidateHashValue(entry.mValue)) {
         if (aPolicy) {
           nsTArray<nsString> params = {entry.mKey, entry.mValue};
           aPolicy->ReportMessage(nsIScriptError::errorFlag, "WAICT"_ns,
@@ -285,7 +278,7 @@ IntegrityPolicyWAICT::ValidateManifest(const nsACString& aManifestJSON,
 
   if (hasAnyHashes) {
     for (const auto& hash : aOutManifest.mAny_hashes.Value()) {
-      if (hash.IsEmpty() || !ValidateHashValue(hash)) {
+      if (!ValidateHashValue(hash)) {
         if (aPolicy) {
           nsTArray<nsString> params = {hash};
           aPolicy->ReportMessage(nsIScriptError::errorFlag, "WAICT"_ns,
@@ -315,7 +308,8 @@ NS_IMETHODIMP IntegrityPolicyWAICT::OnStreamComplete(nsIStreamLoader* aLoader,
   }
 
   nsDependentCSubstring data(reinterpret_cast<const char*>(aData), aDataLen);
-  ManifestValidationStatus status = ValidateManifest(data, mManifest, this);
+  WAICTManifest manifest;
+  ManifestValidationStatus status = ValidateManifest(data, manifest, this);
   if (status != ManifestValidationStatus::OK) {
     MOZ_LOG_FMT(gWaictLog, LogLevel::Warning,
                 "Failed to validate WAICT manifest, error= {}",
@@ -325,7 +319,7 @@ NS_IMETHODIMP IntegrityPolicyWAICT::OnStreamComplete(nsIStreamLoader* aLoader,
     return NS_OK;
   }
 
-  MOZ_LOG_FMT(gWaictLog, LogLevel::Debug, ("Manifest Validation success"));
+  MOZ_LOG_FMT(gWaictLog, LogLevel::Debug, "Manifest validation successfull, version = {}", manifest.mVersion);
 
   if (mDocument && mDocument->GetDocumentURI()) {
     if (WindowGlobalChild* wgc = mDocument->GetWindowGlobalChild()) {
@@ -334,28 +328,20 @@ NS_IMETHODIMP IntegrityPolicyWAICT::OnStreamComplete(nsIStreamLoader* aLoader,
     }
   }
 
-  if (mManifest.mHashes.WasPassed()) {
-    const auto& entries = mManifest.mHashes.Value().Entries();
-    mHashesLookup.Clear();
-    for (const auto& entry : entries) {
-      mHashesLookup.InsertOrUpdate(entry.mKey, entry.mValue);
+  if (manifest.mHashes.WasPassed()) {
+    MOZ_ASSERT(mHashes.IsEmpty());
+    for (const auto& entry : manifest.mHashes.Value().Entries()) {
+      mHashes.InsertOrUpdate(NS_ConvertUTF16toUTF8(entry.mKey), NS_ConvertUTF16toUTF8(entry.mValue));
     }
-    MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
-                "Built hash lookup table with {} entries", entries.Length());
   }
 
-  if (mManifest.mAny_hashes.WasPassed()) {
-    const auto& hashes = mManifest.mAny_hashes.Value();
-    mAnyHashesLookup.Clear();
-    for (const auto& hash : hashes) {
-      mAnyHashesLookup.Insert(hash);
+  if (manifest.mAny_hashes.WasPassed()) {
+    MOZ_ASSERT(mAnyHashes.IsEmpty());
+    for (const auto& hash : manifest.mAny_hashes.Value()) {
+      mAnyHashes.Insert(NS_ConvertUTF16toUTF8(hash));
     }
-    MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
-                "Built any_hashes lookup set with {} entries", hashes.Length());
   }
 
-  MOZ_LOG_FMT(gWaictLog, LogLevel::Info, "Got manifest, version={}",
-              mManifest.mVersion);
   mManifestValid = true;
   mPromise->Resolve(true, __func__);
   return NS_OK;

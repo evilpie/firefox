@@ -6,9 +6,6 @@
 
 #include "IntegrityPolicy.h"
 
-#include "IntegrityPolicyWAICT.h"
-#include "WAICTLog.h"
-#include "WAICTUtils.h"
 #include "mozilla/Logging.h"
 #include "mozilla/NotNull.h"
 #include "mozilla/StaticPrefs_security.h"

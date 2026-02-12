@@ -72,13 +72,13 @@ class IntegrityPolicyWAICT : public nsIStreamLoaderObserver {
   RefPtr<Document> mDocument;
   nsCString mManifestURL;
   uint64_t mMaxAge = 0;
-  WAICTManifest mManifest;
   IntegrityPolicy::Destinations mDestinations;
   RefPtr<WAICTManifestLoadedPromise::Private> mPromise;
   bool mEnforce = false;
   bool mManifestValid = false;
-  nsTHashMap<nsString, nsString> mHashesLookup;
-  nsTHashSet<nsString> mAnyHashesLookup;
+  // TODO: We probably want to do (uri -> hash)
+  nsTHashMap<nsCString, nsCString> mHashes;
+  nsTHashSet<nsCString> mAnyHashes;
 
   struct ConsoleMsgQueueElem {
     uint32_t mErrorFlags;
