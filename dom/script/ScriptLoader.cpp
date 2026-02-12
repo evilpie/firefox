@@ -993,9 +993,10 @@ nsresult ScriptLoader::StartLoadInternal(
     return NS_ERROR_FAILURE;
   }
 
-  IntegrityPolicy* policy = IntegrityPolicy::Cast(
-      PolicyContainer::GetIntegrityPolicy(mDocument->GetPolicyContainer()));
-  if (policy && policy->HasWaictFor(IntegrityPolicy::DestinationType::Script)) {
+  IntegrityPolicyWAICT* policy =
+      PolicyContainer::GetIntegrityPolicyWAICT(mDocument->GetPolicyContainer());
+  if (policy &&
+      policy->ShouldHandle(IntegrityPolicy::DestinationType::Script)) {
     aRequest->mFetchSourceOnly = true;
   }
 
@@ -1810,10 +1811,9 @@ ScriptLoadRequest* ScriptLoader::LookupPreloadRequest(
     return nullptr;
   }
 
-  if (auto* integrity =
-          IntegrityPolicy::Cast(PolicyContainer::GetIntegrityPolicy(
-              mDocument->GetPolicyContainer()))) {
-    if (integrity->HasWaictFor(IntegrityPolicy::DestinationType::Script)) {
+  if (auto* policy = PolicyContainer::GetIntegrityPolicyWAICT(
+          mDocument->GetPolicyContainer())) {
+    if (policy->ShouldHandle(IntegrityPolicy::DestinationType::Script)) {
       return nullptr;
     }
   }

@@ -37,7 +37,7 @@
 #include "mozilla/dom/FetchPriority.h"
 #include "mozilla/dom/nsMixedContentBlocker.h"
 #include "mozilla/dom/PolicyContainer.h"
-#include "mozilla/dom/IntegrityPolicy.h"
+#include "mozilla/dom/IntegrityPolicyWAICT.h"
 #include "mozilla/image/ImageMemoryReporter.h"
 #include "mozilla/layers/CompositorManagerChild.h"
 #include "nsCOMPtr.h"
@@ -3070,21 +3070,20 @@ ProxyListener::OnStopRequest(nsIRequest* aRequest, nsresult status) {
     }
 
     if (doc) {
-      if (auto* integrity = IntegrityPolicy::Cast(
-              PolicyContainer::GetIntegrityPolicy(doc->GetPolicyContainer()))) {
+      if (auto* policy = PolicyContainer::GetIntegrityPolicyWAICT(
+              doc->GetPolicyContainer())) {
         MOZ_ASSERT(
-            integrity->HasWaictFor(IntegrityPolicy::DestinationType::Image));
+            policy->ShouldHandle(IntegrityPolicy::DestinationType::Image));
 
-        integrity->WaitForManifestLoad()->Then(
+        policy->WaitForManifestLoad()->Then(
             GetCurrentSerialEventTarget(), __func__,
             [listener = nsCOMPtr{mDestListener}, channel,
-             request = nsCOMPtr{aRequest}, status,
-             integrity = RefPtr{integrity},
+             request = nsCOMPtr{aRequest}, status, policy = RefPtr{policy},
              computedHash = nsCString(computedHash), doc = RefPtr{doc}](bool) {
               // XXX Not clear if we want to use pre-redirect URL.
               nsCOMPtr<nsIURI> originalURI;
               channel->GetOriginalURI(getter_AddRefs(originalURI));
-              if (!integrity->CheckHash(originalURI, computedHash, doc)) {
+              if (!policy->CheckHash(originalURI, computedHash, doc)) {
                 return listener->OnStopRequest(request, NS_ERROR_FAILURE);
               }
 

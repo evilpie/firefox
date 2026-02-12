@@ -30,7 +30,7 @@
 #include "mozilla/Vector.h"
 #include "mozilla/dom/CacheExpirationTime.h"
 #include "mozilla/dom/Document.h"
-#include "mozilla/dom/IntegrityPolicy.h"
+#include "mozilla/dom/IntegrityPolicyWAICT.h"
 #include "mozilla/dom/PolicyContainer.h"
 #include "mozilla/dom/ResourceHasher.h"
 #include "mozilla/dom/SRICheck.h"
@@ -136,7 +136,7 @@ ScriptLoadHandler::~ScriptLoadHandler() = default;
 NS_IMPL_ISUPPORTS(ScriptLoadHandler, nsIIncrementalStreamLoaderObserver,
                   nsIChannelEventSink, nsIInterfaceRequestor)
 
-static IntegrityPolicy* GetIntegrityPolicy(nsIChannel* aChannel) {
+static IntegrityPolicyWAICT* GetIntegrityPolicyWAICT(nsIChannel* aChannel) {
   nsCOMPtr<nsILoadInfo> loadInfo = aChannel->LoadInfo();
   nsCOMPtr<nsISupports> loadingContext = loadInfo->GetLoadingContext();
 
@@ -150,8 +150,7 @@ static IntegrityPolicy* GetIntegrityPolicy(nsIChannel* aChannel) {
     return nullptr;
   }
 
-  return IntegrityPolicy::Cast(
-      PolicyContainer::GetIntegrityPolicy(doc->GetPolicyContainer()));
+  return PolicyContainer::GetIntegrityPolicyWAICT(doc->GetPolicyContainer());
 }
 
 NS_IMETHODIMP
@@ -162,8 +161,8 @@ ScriptLoadHandler::OnStartRequest(nsIRequest* aRequest) {
 
   // Only create a ResourceHasher when we need to enforce WAICT.
   nsCOMPtr<nsIChannel> channel = do_QueryInterface(aRequest);
-  if (IntegrityPolicy* policy = GetIntegrityPolicy(channel)) {
-    if (policy->HasWaictFor(IntegrityPolicy::DestinationType::Script)) {
+  if (IntegrityPolicyWAICT* policy = GetIntegrityPolicyWAICT(channel)) {
+    if (policy->ShouldHandle(IntegrityPolicy::DestinationType::Script)) {
       // TODO: Provide the OID of the hash algorithm instead of just SHA256.
       mResourceHasher =
           mozilla::dom::ResourceHasher::Init(nsICryptoHash::SHA256);
@@ -452,7 +451,7 @@ ScriptLoadHandler::OnStreamComplete(nsIIncrementalStreamLoader* aLoader,
     return DoOnStreamComplete(channel, NS_ERROR_FAILURE, aDataLength, aData);
   }
 
-  RefPtr<IntegrityPolicy> integrity = GetIntegrityPolicy(channel);
+  RefPtr<IntegrityPolicyWAICT> integrity = GetIntegrityPolicyWAICT(channel);
   if (!integrity) {
     MOZ_LOG_FMT(
         gWaictLog, LogLevel::Error,

@@ -1608,6 +1608,7 @@ class Document : public nsINode,
   nsresult InitPolicyContainer(nsIChannel* aChannel);
   nsresult InitCSP(nsIChannel* aChannel);
   nsresult InitIntegrityPolicy(nsIChannel* aChannel);
+  nsresult InitIntegrityPolicyWAICT(nsIChannel* aChannel);
   nsresult InitCOEP(nsIChannel* aChannel);
   nsresult InitDocPolicy(nsIChannel* aChannel);
   nsresult InitTLSCertificateBinding(nsIChannel* aChannel);

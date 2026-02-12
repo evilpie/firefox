@@ -697,9 +697,9 @@ imgRequest::OnStartRequest(nsIRequest* aRequest) {
     }
 
     if (doc) {
-      if (auto* integrity = IntegrityPolicy::Cast(
-              PolicyContainer::GetIntegrityPolicy(doc->GetPolicyContainer()))) {
-        if (integrity->HasWaictFor(IntegrityPolicy::DestinationType::Image)) {
+      if (auto* policy = PolicyContainer::GetIntegrityPolicyWAICT(
+              doc->GetPolicyContainer())) {
+        if (policy->ShouldHandle(IntegrityPolicy::DestinationType::Image)) {
           // Initialize the hasher for resource integrity verification.
           mResourceHasher = ResourceHasher::Init(nsICryptoHash::SHA256);
         }

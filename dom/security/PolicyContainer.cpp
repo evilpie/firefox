@@ -16,6 +16,7 @@
 using namespace mozilla;
 using namespace mozilla::dom;
 
+PolicyContainer::PolicyContainer() = default;
 PolicyContainer::~PolicyContainer() = default;
 
 constexpr static uint32_t kPolicyContainerSerializationVersion = 1;
@@ -207,6 +208,23 @@ nsIIntegrityPolicy* PolicyContainer::GetIntegrityPolicy(
     return nullptr;
   }
   return PolicyContainer::Cast(aPolicyContainer)->GetIntegrityPolicy();
+}
+
+// == WAICT Integrity Policy ==
+void PolicyContainer::SetIntegrityPolicyWAICT(IntegrityPolicyWAICT* aPolicy) {
+  mIntegrityPolicyWAICT = aPolicy;
+}
+
+IntegrityPolicyWAICT* PolicyContainer::GetIntegrityPolicyWAICT() const {
+  return mIntegrityPolicyWAICT;
+}
+
+IntegrityPolicyWAICT* PolicyContainer::GetIntegrityPolicyWAICT(
+    const nsIPolicyContainer* aPolicyContainer) {
+  if (!aPolicyContainer) {
+    return nullptr;
+  }
+  return PolicyContainer::Cast(aPolicyContainer)->GetIntegrityPolicyWAICT();
 }
 
 NS_IMETHODIMP PolicyContainer::GetCsp(nsIContentSecurityPolicy** aCsp) {
