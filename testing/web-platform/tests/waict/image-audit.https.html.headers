@@ -1,1 +1,1 @@
-Integrity-Policy-WAICT-v1: manifest="resources/waict-manifest.json", blocked-destinations=(image), mode="audit"
+Integrity-Policy-WAICT-v1: max-age=0, manifest="resources/waict-manifest.json", blocked-destinations=(image), mode=audit

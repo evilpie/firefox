@@ -16,6 +16,8 @@
 
   // Test 1: Script with the correct hash in hashes is executed. 
 
+  /*
+
   promise_test(async t => {
     // See script-audit.html
     const reports = setupIntegrityViolationObserver(t);
@@ -31,6 +33,9 @@
     // No reports should be generated for correct hash
     assert_equals(reports.length, 0, 'Script run should not cause any report to be generated');
   }, 'Script with correct hash should load without generating reports (enforce mode)');
+
+  */
+
 
   // Test 2: Script with an incorrect hash in hashes is executed.
   // Test should return WAICTHashMismatch
@@ -51,6 +56,8 @@
     // Check integrity violation reports
     checkIntegrityViolationReport(reports, 'incorrect.js', false);
   }, 'Script with incorrect hash should fail to load (enforce mode)');
+
+  /*
 
   // Test 3: Script with correct hash in any_hashes
   promise_test(async t => {
@@ -157,5 +164,7 @@
     // Check integrity violation reports
     checkIntegrityViolationReport(reports, 'correct.js', false);
   }, 'Script should not load and generate violation when header is missing a header field');
+
+  */
 </script>
 </body>

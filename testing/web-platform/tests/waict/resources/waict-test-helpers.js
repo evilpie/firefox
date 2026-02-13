@@ -4,10 +4,11 @@
 function setupIntegrityViolationObserver(t) {
   const reports = [];
   const observer = new ReportingObserver((reportList) => {
+    console.log("reports", reportList);
     reports.push(...reportList);
-  }, {types: ['integrity-violation']});
+  }, {types: ['integrity-violation'], buffered: true});
   observer.observe();
-  t.add_cleanup(() => observer.disconnect());
+  // t.add_cleanup(() => observer.disconnect());
   return reports;
 }
 

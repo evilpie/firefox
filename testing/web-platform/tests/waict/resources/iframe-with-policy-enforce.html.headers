@@ -1,1 +1,1 @@
-Integrity-Policy-WAICT-v1: manifest="waict-manifest.json", blocked-destinations=(script), mode="enforce"
+Integrity-Policy-WAICT-v1: max-age=0, manifest="waict-manifest.json", blocked-destinations=(script), mode=enforce
