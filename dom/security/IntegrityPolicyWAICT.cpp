@@ -10,6 +10,8 @@
 #include "WAICTUtils.h"
 #include "mozilla/Logging.h"
 #include "mozilla/dom/Document.h"
+#include "mozilla/dom/IntegrityViolationReportBody.h"
+#include "mozilla/dom/ReportingUtils.h"
 #include "mozilla/dom/WindowGlobalChild.h"
 #include "mozilla/net/SFVService.h"
 #include "nsContentUtils.h"
@@ -38,7 +40,8 @@ IntegrityPolicyWAICT::WaitForManifestLoad() {
 }
 
 bool IntegrityPolicyWAICT::MaybeCheckResourceIntegrity(
-    nsIURI* aURI, const nsACString& aHash, Document* aDocument) {
+    nsIURI* aURI, const nsACString& aHash,
+    IntegrityPolicy::DestinationType aDestination, Document* aDocument) {
   MOZ_LOG_FMT(
       gWaictLog, LogLevel::Debug,
       "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity aURI = {} aHash = {}",
@@ -51,6 +54,7 @@ bool IntegrityPolicyWAICT::MaybeCheckResourceIntegrity(
           gWaictLog, LogLevel::Warning,
           "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Manifest not "
           "valid, enforce mode - blocking");
+      ReportViolation(aURI, aDestination);
       return false;
     }
     MOZ_LOG_FMT(
@@ -67,7 +71,8 @@ bool IntegrityPolicyWAICT::MaybeCheckResourceIntegrity(
       if (auto hashValue = mHashes.Lookup(path)) {
         if (*hashValue != aHash) {
           MOZ_LOG_FMT(gWaictLog, LogLevel::Warning,
-                      "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Wrong hash for path "
+                      "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: "
+                      "Wrong hash for path "
                       "({} != {})",
                       *hashValue, nsCString(aHash));
 
@@ -77,12 +82,14 @@ bool IntegrityPolicyWAICT::MaybeCheckResourceIntegrity(
                                        NS_ConvertUTF8toUTF16(aHash)};
           ReportMessage(nsIScriptError::errorFlag, "WAICT"_ns,
                         "WAICTManifestInvalidHash", params);
+          ReportViolation(aURI, aDestination);
           return false;
         }
 
-        MOZ_LOG_FMT(gWaictLog, LogLevel::Info,
-                    "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Correct hash "
-                    "(path-based)");
+        MOZ_LOG_FMT(
+            gWaictLog, LogLevel::Info,
+            "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Correct hash "
+            "(path-based)");
         return true;
       }
     }
@@ -91,13 +98,15 @@ bool IntegrityPolicyWAICT::MaybeCheckResourceIntegrity(
   if (!mAnyHashes.IsEmpty()) {
     if (mAnyHashes.Contains(aHash)) {
       MOZ_LOG_FMT(gWaictLog, LogLevel::Info,
-                  "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Hash found in any_hashes");
+                  "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Hash "
+                  "found in any_hashes");
       return true;
     }
   }
 
   MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
-              "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Hash not found in either "
+              "IntegrityPolicyWAICT::MaybeCheckResourceIntegrity: Hash not "
+              "found in either "
               "lookup");
 
   nsCString spec = aURI->GetSpecOrDefault();
@@ -105,6 +114,7 @@ bool IntegrityPolicyWAICT::MaybeCheckResourceIntegrity(
                                NS_ConvertUTF8toUTF16(aHash)};
   ReportMessage(nsIScriptError::errorFlag, "WAICT"_ns,
                 "WAICTResourceNotInManifest", params);
+  ReportViolation(aURI, aDestination);
   return false;
 }
 
@@ -335,7 +345,9 @@ NS_IMETHODIMP IntegrityPolicyWAICT::OnStreamComplete(nsIStreamLoader* aLoader,
     return NS_OK;
   }
 
-  MOZ_LOG_FMT(gWaictLog, LogLevel::Debug, "Manifest validation successfull, version = {}", manifest.mVersion);
+  MOZ_LOG_FMT(gWaictLog, LogLevel::Debug,
+              "Manifest validation successfull, version = {}",
+              manifest.mVersion);
 
   if (mDocument && mDocument->GetDocumentURI()) {
     if (WindowGlobalChild* wgc = mDocument->GetWindowGlobalChild()) {
@@ -347,7 +359,8 @@ NS_IMETHODIMP IntegrityPolicyWAICT::OnStreamComplete(nsIStreamLoader* aLoader,
   if (manifest.mHashes.WasPassed()) {
     MOZ_ASSERT(mHashes.IsEmpty());
     for (const auto& entry : manifest.mHashes.Value().Entries()) {
-      mHashes.InsertOrUpdate(NS_ConvertUTF16toUTF8(entry.mKey), NS_ConvertUTF16toUTF8(entry.mValue));
+      mHashes.InsertOrUpdate(NS_ConvertUTF16toUTF8(entry.mKey),
+                             NS_ConvertUTF16toUTF8(entry.mValue));
     }
   }
 
@@ -437,6 +450,50 @@ void IntegrityPolicyWAICT::ReportMessage(uint32_t aErrorFlags,
                                     nsContentUtils::eSECURITY_PROPERTIES,
                                     aMessageName, aParams);
   }
+}
+
+void IntegrityPolicyWAICT::ReportViolation(
+    nsIURI* aURI, IntegrityPolicy::DestinationType aDestination) const {
+  if (!mDocument) {
+    return;
+  }
+
+  nsPIDOMWindowInner* window = mDocument->GetInnerWindow();
+  if (NS_WARN_IF(!window)) {
+    return;
+  }
+  nsCOMPtr<nsIGlobalObject> global = window->AsGlobal();
+
+  nsCOMPtr<nsIURI> uri = mDocument->GetDocumentURI();
+  if (NS_WARN_IF(!uri)) {
+    return;
+  }
+
+  nsAutoCString documentURL;
+  ReportingUtils::StripURL(uri, documentURL);
+  NS_ConvertUTF8toUTF16 documentURLUTF16(documentURL);
+
+  nsAutoCString blockedURL;
+  ReportingUtils::StripURL(aURI, blockedURL);
+
+  nsAutoCString destination;
+  switch (aDestination) {
+    case IntegrityPolicy::DestinationType::Script:
+      destination = "script"_ns;
+      break;
+    case IntegrityPolicy::DestinationType::Style:
+      destination = "style"_ns;
+      break;
+    case IntegrityPolicy::DestinationType::Image:
+      destination = "image"_ns;
+      break;
+  }
+
+  RefPtr<IntegrityViolationReportBody> body = new IntegrityViolationReportBody(
+      global, documentURL, blockedURL, destination, !mEnforce);
+
+  ReportingUtils::Report(global, nsGkAtoms::integrity_violation, u"default"_ns,
+                         documentURLUTF16, body);
 }
 
 bool IntegrityPolicyWAICT::Equals(const IntegrityPolicyWAICT* aWaict,

@@ -3083,8 +3083,9 @@ ProxyListener::OnStopRequest(nsIRequest* aRequest, nsresult status) {
               // XXX Not clear if we want to use pre-redirect URL.
               nsCOMPtr<nsIURI> originalURI;
               channel->GetOriginalURI(getter_AddRefs(originalURI));
-              if (!policy->MaybeCheckResourceIntegrity(originalURI,
-                                                       computedHash, doc)) {
+              if (!policy->MaybeCheckResourceIntegrity(
+                      originalURI, computedHash,
+                      IntegrityPolicy::DestinationType::Image, doc)) {
                 return listener->OnStopRequest(request, NS_ERROR_FAILURE);
               }
 
@@ -3094,7 +3095,8 @@ ProxyListener::OnStopRequest(nsIRequest* aRequest, nsresult status) {
               MOZ_ASSERT_UNREACHABLE("should always resolve");
               // Exceptional error (timeout, page closed, etc.) - always fail
               // MOZ_LOG(gWaictLog, LogLevel::Error,
-              //         ("ProxyListener::OnStopRequest -- Promise rejected\n"));
+              //         ("ProxyListener::OnStopRequest -- Promise
+              //         rejected\n"));
               // return listener->OnStopRequest(request, NS_ERROR_FAILURE);
             });
 
