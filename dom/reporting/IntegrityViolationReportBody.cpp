@@ -14,12 +14,13 @@ namespace mozilla::dom {
 IntegrityViolationReportBody::IntegrityViolationReportBody(
     nsIGlobalObject* aGlobal, const nsACString& aDocumentURL,
     const nsACString& aBlockedURL, const nsACString& aDestination,
-    const bool aReportOnly)
+    const bool aReportOnly, const Nullable<IntegrityViolationReason> aReason)
     : ReportBody(aGlobal),
       mDocumentURL(aDocumentURL),
       mBlockedURL(aBlockedURL),
       mDestination(aDestination),
-      mReportOnly(aReportOnly) {}
+      mReportOnly(aReportOnly),
+      mReason(aReason) {}
 
 IntegrityViolationReportBody::~IntegrityViolationReportBody() = default;
 
@@ -42,6 +43,11 @@ void IntegrityViolationReportBody::GetDestination(
 }
 
 bool IntegrityViolationReportBody::ReportOnly() const { return mReportOnly; }
+
+Nullable<IntegrityViolationReason> IntegrityViolationReportBody::GetReason()
+    const {
+  return mReason;
+}
 
 void IntegrityViolationReportBody::ToJSON(JSONWriter& aJSONWriter) const {
   aJSONWriter.StringProperty("documentURL", mDocumentURL);
