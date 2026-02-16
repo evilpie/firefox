@@ -53,6 +53,9 @@
 #include "mozilla/dom/DocumentInlines.h"  // Document::GetPresContext
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/FetchPriority.h"
+#ifdef NIGHTLY_BUILD
+#include "mozilla/dom/IntegrityPolicyWAICT.h"
+#endif
 #include "mozilla/dom/JSExecutionUtils.h"  // mozilla::dom::Compile, mozilla::dom::InstantiateStencil, mozilla::dom::EvaluationExceptionToNSResult
 #include "mozilla/dom/PolicyContainer.h"
 #include "mozilla/dom/RequestBinding.h"
@@ -994,6 +997,15 @@ nsresult ScriptLoader::StartLoadInternal(
     return NS_ERROR_FAILURE;
   }
 
+#ifdef NIGHTLY_BUILD
+  IntegrityPolicyWAICT* policy =
+      PolicyContainer::GetIntegrityPolicyWAICT(mDocument->GetPolicyContainer());
+  if (policy &&
+      policy->ShouldHandle(IntegrityPolicy::DestinationType::Script)) {
+    aRequest->mFetchSourceOnly = true;
+  }
+#endif
+
   ScriptLoader::PrepareCacheInfoChannel(channel, aRequest);
 
   LOG(("ScriptLoadRequest (%p): mode=%u tracking=%d", aRequest,
@@ -1804,6 +1816,15 @@ ScriptLoadRequest* ScriptLoader::LookupPreloadRequest(
   if (aScriptKind != request->mKind) {
     return nullptr;
   }
+
+#ifdef NIGHTLY_BUILD
+  if (auto* policy = PolicyContainer::GetIntegrityPolicyWAICT(
+          mDocument->GetPolicyContainer())) {
+    if (policy->ShouldHandle(IntegrityPolicy::DestinationType::Script)) {
+      return nullptr;
+    }
+  }
+#endif
 
   // Found preloaded request. Note that a script-inserted script can steal a
   // preload!
