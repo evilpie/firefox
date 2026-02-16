@@ -194,6 +194,7 @@
 #include "mozilla/dom/HighlightRegistry.h"
 #include "mozilla/dom/InspectorUtils.h"
 #include "mozilla/dom/IntegrityPolicy.h"
+#include "mozilla/dom/IntegrityPolicyWAICT.h"
 #include "mozilla/dom/InteractiveWidget.h"
 #include "mozilla/dom/Link.h"
 #include "mozilla/dom/MediaQueryList.h"
@@ -3717,6 +3718,8 @@ nsresult Document::StartDocumentLoad(const char* aCommand, nsIChannel* aChannel,
 
   MOZ_TRY(InitIntegrityPolicy(aChannel));
 
+  MOZ_TRY(InitIntegrityPolicyWAICT(aChannel));
+
   MOZ_TRY(InitDocPolicy(aChannel));
 
   // Initialize FeaturePolicy
@@ -4039,13 +4042,13 @@ nsresult Document::InitIntegrityPolicy(nsIChannel* aChannel) {
     return NS_OK;
   }
 
-  nsAutoCString headerValue, headerROValue;
   nsCOMPtr<nsIHttpChannel> httpChannel;
   nsresult rv = GetHttpChannelHelper(aChannel, getter_AddRefs(httpChannel));
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }
 
+  nsAutoCString headerValue, headerROValue;
   if (httpChannel) {
     (void)httpChannel->GetResponseHeader("integrity-policy"_ns, headerValue);
 
@@ -4059,6 +4062,41 @@ nsresult Document::InitIntegrityPolicy(nsIChannel* aChannel) {
   NS_ENSURE_SUCCESS(rv, rv);
 
   mPolicyContainer->SetIntegrityPolicy(integrityPolicy);
+  return NS_OK;
+}
+
+nsresult Document::InitIntegrityPolicyWAICT(nsIChannel* aChannel) {
+  MOZ_ASSERT(!mScriptGlobalObject,
+             "Integrity Policy must be initialized before mScriptGlobalObject "
+             "is set!");
+  MOZ_ASSERT(mPolicyContainer,
+             "Policy container must be initialized before IntegrityPolicy!");
+
+#ifdef NIGHTLY_BUILD
+  if (mPolicyContainer->GetIntegrityPolicyWAICT()) {
+    // We inherited the integrity policy.
+    return NS_OK;
+  }
+
+  nsCOMPtr<nsIHttpChannel> httpChannel;
+  nsresult rv = GetHttpChannelHelper(aChannel, getter_AddRefs(httpChannel));
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return rv;
+  }
+
+  nsAutoCString headerValue;
+  if (httpChannel) {
+    (void)httpChannel->GetResponseHeader("integrity-policy-waict-v1"_ns,
+                                         headerValue);
+  }
+
+  RefPtr<IntegrityPolicyWAICT> policy;
+  rv = IntegrityPolicyWAICT::Create(this, headerValue, getter_AddRefs(policy));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  mPolicyContainer->SetIntegrityPolicyWAICT(policy);
+#endif
+
   return NS_OK;
 }
 
@@ -8324,6 +8362,11 @@ void Document::SetScriptGlobalObject(
   if (nsIContentSecurityPolicy* csp =
           PolicyContainer::GetCSP(mPolicyContainer)) {
     nsCSPContext::Cast(csp)->flushConsoleMessages();
+  }
+
+  if (IntegrityPolicyWAICT* policy =
+          PolicyContainer::GetIntegrityPolicyWAICT(mPolicyContainer)) {
+    policy->FlushConsoleMessages();
   }
 
   nsCOMPtr<nsIHttpChannelInternal> internalChannel =
