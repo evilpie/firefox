@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WAICT: Image test with blocked-destinations=(script) in report mode</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="/reporting/resources/report-helper.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
+<body>
+<script>
+  // Test: Image with incorrect hash in manifest, but blocked-destinations=(script)
+  // Since images are not in blocked-destinations, image hash should not be validated
+  // Image should load successfully without any reports
+
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    const loadPromise = new Promise((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Image failed to load'));
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/correct.png';
+
+    await loadPromise;
+    assert_true(img.complete, 'Image should load successfully when not in blocked-destinations');
+
+    // No reports should be generated because images are not in blocked-destinations
+    assert_equals(reports.length, 0, 'Should not generate any integrity violation reports when resource type not in blocked-destinations');
+  }, 'Image with incorrect hash in manifest should load without validation when blocked-destinations=(script)');
+</script>
+</body>

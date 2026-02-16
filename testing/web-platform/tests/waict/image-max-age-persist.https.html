@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>WAICT: Max-age persistence test</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
+<body>
+<script>
+    // Test that WAICT policy persists within max-age period
+    // This test automatically loads a page with WAICT header (max-age=90),
+    // then loads the same page without WAICT header (within 90s).
+    // Expected: Cached policy should still block the image
+
+    promise_test(async t => {
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        t.add_cleanup(() => iframe.remove());
+
+        // Phase 1: Load with WAICT header (max-age=90)
+        await new Promise((resolve) => {
+            iframe.onload = resolve;
+            iframe.src = 'resources/waict-max-age.py?set&max-age=90';
+        });
+
+        // Wait a bit
+        await new Promise(resolve => t.step_timeout(resolve, 100));
+
+        let phase1Image = iframe.contentDocument.getElementById('test-image');
+        let phase1Result = phase1Image.complete && phase1Image.naturalHeight === 0 ? 'blocked' : 'loaded';
+
+        assert_equals(phase1Result, 'blocked', 'Phase 1: Image should be blocked with WAICT header present');
+
+        // Phase 2: Load same page WITHOUT WAICT header (policy should persist)
+        await new Promise((resolve) => {
+            iframe.onload = resolve;
+            iframe.src = 'resources/waict-max-age.py';
+        });
+
+        // Wait a bit
+        await new Promise(resolve => t.step_timeout(resolve, 100));
+
+        let phase2Image = iframe.contentDocument.getElementById('test-image');
+        let phase2Result = phase2Image.complete && phase2Image.naturalHeight === 0 ? 'blocked' : 'loaded';
+
+        assert_equals(phase2Result, 'blocked', 'Phase 2: Image should still be blocked due to cached policy (within max-age=90)');
+
+    }, 'WAICT policy with max-age=90 persists when header is removed (downgrade protection)');
+</script>
+</body>

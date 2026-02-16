@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>WAICT: Top-level WAICT policy applies to cross-origin contexts</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="/common/get-host-info.sub.js"></script>
+<body>
+<script>
+    // WHAT THIS TEST CHECKS:
+    // =======================
+    // Spec: "This information is partitioned to this top level origin and impacts
+    //        all (active content) resource loads for this top level origin
+    //        (including sub resources on third-party sites)."
+    //
+    // This means: If foo.com sets a WAICT policy, that policy should apply to
+    // ALL resources loaded in the page context, even if those resources are
+    // loaded from within a third-party (cross-origin) iframe.
+    //
+    // TEST SCENARIO:
+    // ==============
+    // 1. Top-level page: foo.com (origin A) WITH WAICT policy + manifest
+    //    - Manifest includes hash for: /waict/resources/incorrect.png (foo.com resource)
+    //    - Hash is INCORRECT (doesn't match actual image)
+    //
+    // 2. Load cross-origin iframe: cdn.com (origin B) - NO WAICT header
+    //    - Inside this iframe, try to load: foo.com/waict/resources/incorrect.png
+    //    - This is a CROSS-ORIGIN resource load (origin B loading from origin A)
+    //
+    // 3. Expected behavior:
+    //    - Image should be BLOCKED because foo.com's WAICT policy applies
+    //    - Even though the image is loaded from within cdn.com iframe,
+    //      foo.com's policy still validates foo.com resources
+    //
+    // WHY THIS MATTERS:
+    // =================
+    // This ensures that WAICT policy protects resources from the top-level origin
+    // regardless of where they're embedded. A third-party iframe can't bypass
+    // the WAICT policy by loading protected resources.
+
+    promise_test(async t => {
+        const host_info = get_host_info();
+
+        // Create cross-origin iframe (cdn.com equivalent)
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        t.add_cleanup(() => iframe.remove());
+
+        // Wait for message from iframe about image load result
+        const resultPromise = new Promise((resolve) => {
+            window.addEventListener('message', function handler(event) {
+                if (event.data.type === 'imageResult') {
+                    window.removeEventListener('message', handler);
+                    resolve(event.data.loaded);
+                }
+            });
+        });
+
+        // Load cross-origin iframe that will try to load an image from our origin
+        // The iframe itself has NO WAICT header (it's from cdn.com)
+        // But it will load an image from foo.com (our origin with WAICT policy)
+        iframe.src = host_info.HTTPS_REMOTE_ORIGIN + '/waict/resources/iframe-loads-main-origin-image.html';
+
+        const imageLoaded = await resultPromise;
+
+        // Image should be BLOCKED because:
+        // - This page (foo.com) has a WAICT policy
+        // - The manifest says incorrect.png has wrong hash
+        // - Even though the image is loaded from cdn.com iframe,
+        //   foo.com's policy still applies to foo.com resources
+        assert_false(imageLoaded, 'Image from main origin should be blocked by top-level WAICT policy, even when loaded from cross-origin iframe');
+
+    }, 'Top-level WAICT policy applies to main-origin resources loaded by cross-origin iframes');
+</script>
+</body>

@@ -1,0 +1,221 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WAICT: Script test with report mode</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
+<body>
+   <script>
+      // In this file we have 2 types of tests:
+      // 1) Specifically the tests that are related to scripts
+      // 2) General cases tests, for example, wrong headers.
+      //
+      // Currently supported test scenarios:
+      // Scripts:
+      //   1. Script with correct hash present in the manifest in the hashes section
+      //   2. Script with incorrect hash present in the manifest in the hashes section
+      //   3. Script with hash present in the manifest in the any_hashes section
+      //   4. Script with incorrect hash in the any_hashes section
+      //   5. Script not present in the manifest at all
+      //
+      // General cases tests:
+      //   a) Header tests (not exhaustive - see TestWAICTHeader for comprehensive header tests):
+      //      6. Header missing mandatory blocked-destinations field
+      //      7. Header missing mandatory mode field
+      //      9. Header with empty blocked-destinations field
+      //      12. Header missing optional preload field (WAICT still blocks resources)
+      //      13. Header with nonexistent manifest file (WAICT disabled)
+      //   b) Manifest tests (not exhaustive - see TestWAICTManifest for comprehensive manifest tests):
+      //      8. Manifest missing optional resource_delimiter field
+      
+      // Test 1: Script with the correct hash in hashes is executed. 
+      
+      promise_test(async t => {
+        // See script-report.html
+        setupIntegrityViolationObserver(t);
+
+        const result = await loadScriptInIframe(
+          'resources/iframe-with-policy-report.html',
+          'correct.js'
+        );
+
+        assert_true(result.loaded, 'Script should load successfully');
+        assert_true(result.ran, 'Script should execute (window.ran should be true)');
+
+        // No reports should be generated for correct hash
+        assert_equals(result.reports.length, 0, 'Script run should not cause any report to be generated');
+      }, 'Script with correct hash should load without generating reports (report mode)');
+        
+        // Test 2: Script with an incorrect hash in hashes is executed.
+        // Test should return WAICTHashMismatch
+      promise_test(async t => {
+        setupIntegrityViolationObserver(t);
+        const result = await loadScriptInIframe(
+          'resources/iframe-with-policy-report.html',
+          'incorrect.js'
+        );
+
+        assert_true(result.loaded, 'Script should load in report mode even when hash does not match');
+        assert_true(result.ran, 'Script should execute in report mode');
+
+        // Check integrity violation reports
+        checkIntegrityViolationReport(result.reports, 'incorrect.js', true);
+      }, 'Script with incorrect hash should load but generate violation (report mode)');
+      
+      // Test 3: Script with correct hash in any_hashes
+      promise_test(async t => {
+        const result = await loadScriptInIframe(
+          'resources/iframe-with-policy-report.html',
+          'correct_wildcards.js'
+        );
+
+        assert_true(result.loaded, 'Script should load successfully when hash is in any_hashes');
+        assert_true(result.ran, 'Script should execute');
+
+        // No reports should be generated for correct hash in any_hashes
+        assert_equals(result.reports.length, 0, 'Should not generate any integrity violation reports for hash in any_hashes');
+      }, 'Script with hash in any_hashes should load successfully (report mode)');
+        
+        // Test 4: Script with incorrect hash in any_hashes
+        // Test should return WAICTHashMismatch
+      promise_test(async t => {
+        const result = await loadScriptInIframe(
+          'resources/iframe-with-policy-report.html',
+          'incorrect_wildcards.js'
+        );
+
+        assert_true(result.loaded, 'Script should load in report mode even when hash in any_hashes does not match');
+        assert_true(result.ran, 'Script should execute in report mode');
+        // Check integrity violation reports
+        checkIntegrityViolationReport(result.reports, 'incorrect_wildcards.js', true);
+      }, 'Script with wrong hash in any_hashes should load but generate violation (report mode)');
+      
+      // Test 5: Script not in manifest at all
+      // Test should return WAICTResourceNotInManifest.
+      promise_test(async t => {
+        const result = await loadScriptInIframe(
+          'resources/iframe-with-policy-report.html',
+          'no_hash.js'
+        );
+
+        assert_true(result.loaded, 'Script should load in report mode even when not in manifest');
+        assert_true(result.ran, 'Script should execute in report mode');
+        // Check integrity violation reports
+        checkIntegrityViolationReport(result.reports, 'no_hash.js', true);
+      }, 'Script not in manifest should load but generate violation (report mode)');
+
+     // Test 6: Script with malformed header (missing blocked-destinations parameter)
+     // Integrity-Policy-WAICT-v1: manifest="waict-manifest.json", mode=report
+     // Missing required field "blocked-destinations"
+     // TODO: Add error code
+     // When header parsing fails, WAICT is not enforced at all
+    promise_test(async t => {
+      setupIntegrityViolationObserver(t);
+
+      const result = await loadScriptInIframe(
+        'resources/iframe-with-no-blocked-destinations-report.html',
+        'incorrect.js'
+      );
+
+      // Script has incorrect hash in manifest, but WAICT is disabled so it loads anyway
+      assert_true(result.loaded, 'Script should load when header is malformed (WAICT disabled)');
+      assert_true(result.ran, 'Script should execute when header is malformed (WAICT disabled)');
+
+      // Wait a bit for reports to be generated
+      await new Promise(resolve => t.step_timeout(resolve, 100));
+
+      // No reports should be generated when WAICT is disabled
+      assert_equals(result.reports.length, 0, 'Should not generate reports when WAICT is disabled due to header parsing failure');
+    }, 'Script with incorrect hash should load without reports when header is missing blocked-destinations parameter (WAICT disabled)');
+
+    // Test 7: Script with malformed header (missing mode parameter)
+    // Integrity-Policy-WAICT-v1: manifest="waict-manifest.json", blocked-destinations=(script)
+    // Missing required field "mode"
+    // TODO: Add error code
+    // When header parsing fails, WAICT is not enforced at all
+    promise_test(async t => {
+      setupIntegrityViolationObserver(t);
+
+      const result = await loadScriptInIframe(
+        'resources/iframe-with-no-mode.html',
+        'incorrect.js'
+      );
+
+      // Script has incorrect hash in manifest, but WAICT is disabled so it loads anyway
+      assert_true(result.loaded, 'Script should load when header is malformed (WAICT disabled)');
+      assert_true(result.ran, 'Script should execute when header is malformed (WAICT disabled)');
+
+      // Wait a bit for reports to be generated
+      await new Promise(resolve => t.step_timeout(resolve, 100));
+
+      // No reports should be generated when WAICT is disabled
+      assert_equals(result.reports.length, 0, 'Should not generate reports when WAICT is disabled due to header parsing failure');
+      }, 'Script with incorrect hash should load without reports when header is missing mode parameter (WAICT disabled)');
+
+    // Test 8: Script with manifest missing optional resource_delimiter field
+    // Tests that optional fields can be omitted and manifest is still valid
+    promise_test(async t => {
+      const result = await loadScriptInIframe(
+        'resources/iframe-with-no-resource-delimiter-report.html',
+        'correct.js'
+      );
+
+      // Manifest should be valid even without optional resource_delimiter field
+      assert_true(result.loaded, 'Script should load when manifest is missing optional resource_delimiter field');
+      assert_true(result.ran, 'Script should execute when manifest is missing optional resource_delimiter field');
+
+      // No reports should be generated for valid manifest with correct hash
+      assert_equals(result.reports.length, 0, 'Should not generate reports when optional field is missing but manifest is otherwise valid');
+    }, 'Script should load successfully when manifest is missing optional resource_delimiter field (report mode)');
+
+    // Test 9: Script with empty blocked-destinations
+    // Integrity-Policy-WAICT-v1: manifest="waict-manifest.json", blocked-destinations=(), mode=report
+    // Empty blocked-destinations means no resource types are blocked
+    promise_test(async t => {
+      const result = await loadScriptInIframe(
+        'resources/iframe-with-empty-blocked-destinations-report.html',
+        'correct.js'
+      );
+
+      // With empty blocked-destinations, scripts are not blocked
+      assert_true(result.loaded, 'Script should load when blocked-destinations is empty');
+      assert_true(result.ran, 'Script should execute when blocked-destinations is empty');
+
+      // No reports should be generated when resource type is not in blocked-destinations
+      assert_equals(result.reports.length, 0, 'Should not generate reports when blocked-destinations is empty');
+    }, 'Script should load successfully when blocked-destinations is empty (report mode)');
+
+    // Test 12: Script with incorrect hash, header missing optional preload field
+    // Even without optional preload field, WAICT should still enforce integrity
+    promise_test(async t => {
+      const result = await loadScriptInIframe(
+        'resources/iframe-with-no-preload-report.html',
+        'incorrect.js'
+      );
+
+      // WAICT should still allow script to load in report mode but generate report
+      assert_true(result.loaded, 'Script should load in report mode even with incorrect hash');
+      assert_true(result.ran, 'Script should execute in report mode');
+
+      // Check integrity violation reports
+      checkIntegrityViolationReport(result.reports, 'incorrect.js', true);
+    }, 'Script with incorrect hash should load but generate report even when header missing optional preload field (report mode)');
+
+    // Test 13: Script with nonexistent manifest file
+    // Integrity-Policy-WAICT-v1: manifest="nonexistent-manifest.json", ...
+    // When manifest cannot be loaded, WAICT is disabled
+    promise_test(async t => {
+      const result = await loadScriptInIframe(
+        'resources/iframe-with-nonexistent-manifest-report.html',
+        'incorrect.js'
+      );
+
+      // Script has incorrect hash in manifest, but WAICT is disabled so it loads anyway
+      assert_true(result.loaded, 'Script should load when manifest file does not exist (WAICT disabled)');
+      assert_true(result.ran, 'Script should execute when manifest file does not exist (WAICT disabled)');
+
+      // No reports should be generated when WAICT is disabled
+      assert_equals(result.reports.length, 0, 'Should not generate reports when WAICT is disabled due to manifest loading failure');
+    }, 'Script with incorrect hash should load without reports when manifest file does not exist (WAICT disabled)');
+   </script>
+</body>

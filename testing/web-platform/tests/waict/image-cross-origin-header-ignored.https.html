@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>WAICT: Cross-origin WAICT header should be ignored</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="/common/get-host-info.sub.js"></script>
+<body>
+<script>
+    // Test that WAICT headers from cross-origin resources are ignored
+    // Top-level page: origin A (no WAICT header)
+    // Iframe: origin B (WITH WAICT header in enforce mode)
+    // Expected: WAICT header from origin B is ignored because it doesn't match top-level origin
+
+    promise_test(async t => {
+        const host_info = get_host_info();
+
+        // Load iframe from cross-origin (www1 subdomain) that has WAICT header
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        t.add_cleanup(() => iframe.remove());
+
+        // Wait for message from iframe about image load result
+        const resultPromise = new Promise((resolve) => {
+            window.addEventListener('message', function handler(event) {
+                if (event.data.type === 'imageResult') {
+                    window.removeEventListener('message', handler);
+                    resolve(event.data.loaded);
+                }
+            });
+        });
+
+        // Load from cross-origin with WAICT header
+        iframe.src = host_info.HTTPS_REMOTE_ORIGIN + '/waict/resources/iframe-cross-origin-with-policy.html';
+
+        const imageLoaded = await resultPromise;
+
+        // Image should LOAD because cross-origin WAICT header is ignored
+        assert_true(imageLoaded, 'Image should load because cross-origin WAICT header is ignored (only top-level origin headers are respected)');
+
+    }, 'WAICT header from cross-origin iframe is ignored (only same-origin headers are respected)');
+</script>
+</body>

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Cross-origin iframe loading main-origin image</title>
+    <script src="/common/get-host-info.sub.js"></script>
+</head>
+<body>
+    <!--
+        This iframe is from a CROSS-ORIGIN (cdn.com equivalent).
+        It has NO WAICT header itself.
+
+        But it's trying to load an image from the MAIN ORIGIN (foo.com equivalent).
+        The main origin HAS a WAICT policy, and that policy should apply to
+        this image load even though it's happening from within this cross-origin iframe.
+    -->
+    <img id="test-image">
+    <script>
+        const host_info = get_host_info();
+        const img = document.getElementById('test-image');
+
+        // Set up handlers before setting src
+        img.onload = function() {
+            // Image loaded successfully
+            window.parent.postMessage({
+                type: 'imageResult',
+                loaded: true
+            }, '*');
+        };
+
+        img.onerror = function() {
+            // Image failed to load (blocked by WAICT)
+            window.parent.postMessage({
+                type: 'imageResult',
+                loaded: false
+            }, '*');
+        };
+
+        // Load an image from the MAIN origin (not our cross-origin)
+        // This image has an incorrect hash in the main origin's manifest
+        // Main origin's WAICT policy should block this load
+        img.src = host_info.HTTPS_ORIGIN + '/waict/resources/incorrect.png';
+    </script>
+</body>
+</html>

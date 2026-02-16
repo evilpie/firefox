@@ -1,0 +1,1 @@
+Integrity-Policy-WAICT-v1: manifest="resources/waict-manifest-invalid-hash.json", blocked-destinations=(script), mode=report, max-age=90

@@ -1,0 +1,1 @@
+Integrity-Policy-WAICT-v1: manifest="waict-manifest-no-resource-delimiter.json", blocked-destinations=(script), mode=enforce, max-age=90

@@ -1,0 +1,46 @@
+<!doctype html>
+<head>
+<script src="waict-test-helpers.js"></script>
+</head>
+<body>
+<div id="status">Script not executed</div>
+</body>
+<script>
+// Iframe with WAICT policy applied (header missing mode parameter)
+
+const reports = setupIntegrityViolationObserver();
+
+window.addEventListener('message', function(event) {
+  if (event.data.action === 'loadScript') {
+    window.ran = false;
+
+    const script = document.createElement('script');
+    script.onload = function() {
+      setTimeout(() => {
+        event.source.postMessage({
+          type: 'scriptResult',
+          loaded: true,
+          ran: window.ran,
+          reports: reports
+        }, '*');
+      }, 100);
+    };
+    script.onerror = function() {
+      setTimeout(() => {
+        event.source.postMessage({
+          type: 'scriptResult',
+          loaded: false,
+          ran: window.ran,
+          reports: reports
+        }, '*');
+      }, 100);
+    };
+    script.src = event.data.src;
+    document.body.appendChild(script);
+  }
+});
+
+if (window.parent !== window) {
+  window.parent.postMessage({type: 'ready'}, '*');
+}
+</script>

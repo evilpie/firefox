@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Cross-origin iframe with WAICT header</title>
+</head>
+<body>
+    <!-- This iframe is loaded from a cross-origin and has a WAICT header.
+         The WAICT header should be ignored because this origin doesn't match the top-level origin.
+         The image below has an incorrect hash in the manifest, but should load anyway. -->
+    <img id="test-image" src="incorrect.png">
+    <script>
+        // Send result to parent via postMessage
+        const img = document.getElementById('test-image');
+
+        img.onload = function() {
+            window.parent.postMessage({
+                type: 'imageResult',
+                loaded: true
+            }, '*');
+        };
+
+        img.onerror = function() {
+            window.parent.postMessage({
+                type: 'imageResult',
+                loaded: false
+            }, '*');
+        };
+
+        // Handle case where image already loaded by the time script runs
+        if (img.complete) {
+            const loaded = img.naturalHeight > 0;
+            window.parent.postMessage({
+                type: 'imageResult',
+                loaded: loaded
+            }, '*');
+        }
+    </script>
+</body>
+</html>

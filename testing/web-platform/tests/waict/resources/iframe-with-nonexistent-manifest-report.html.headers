@@ -1,0 +1,1 @@
+Integrity-Policy-WAICT-v1: manifest="nonexistent-manifest.json", blocked-destinations=(script), mode=report, max-age=90

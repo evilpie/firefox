@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>WAICT: Max-age expiration test</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
+<body>
+<script>
+    // Test that WAICT policy expires after max-age period
+    // This test automatically loads a page with WAICT header (max-age=1),
+    // waits 2+ seconds for the policy to expire,
+    // then loads the same page without WAICT header.
+    // Expected: Policy should be expired and image should load
+    //
+    // To visually observe this test, apply this patch:
+    //   Line ~15: Change `const iframe = document.createElement('iframe');`
+    //             To: `iframe.style = 'width: 800px; height: 600px; border: 5px solid blue;';`
+    //             (add this line right after creating iframe)
+    //   Line ~27: Change `await new Promise(resolve => t.step_timeout(resolve, 100));`
+    //             To: `await new Promise(resolve => t.step_timeout(resolve, 3000));`
+    //   Line ~44: Change `await new Promise(resolve => t.step_timeout(resolve, 100));`
+    //             To: `await new Promise(resolve => t.step_timeout(resolve, 3000));`
+    //   Run without --headless flag
+
+    promise_test(async t => {
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        t.add_cleanup(() => iframe.remove());
+
+        // Phase 1: Load with WAICT header (max-age=1)
+        await new Promise((resolve) => {
+            iframe.onload = resolve;
+            iframe.src = 'resources/waict-max-age.py?set&max-age=1';
+        });
+
+        // Wait a bit
+        await new Promise(resolve => t.step_timeout(resolve, 100));
+
+        let phase1Image = iframe.contentDocument.getElementById('test-image');
+        let phase1Result = phase1Image.complete && phase1Image.naturalHeight === 0 ? 'blocked' : 'loaded';
+
+        assert_equals(phase1Result, 'blocked', 'Phase 1: Image should be blocked with WAICT header present');
+
+        // Wait for policy to expire (2+ seconds for max-age=1)
+        await new Promise(resolve => t.step_timeout(resolve, 2500));
+
+        // Phase 2: Load same page WITHOUT WAICT header (policy should be expired)
+        await new Promise((resolve) => {
+            iframe.onload = resolve;
+            iframe.src = 'resources/waict-max-age.py';
+        });
+
+        // Wait a bit
+        await new Promise(resolve => t.step_timeout(resolve, 100));
+
+        let phase2Image = iframe.contentDocument.getElementById('test-image');
+        let phase2Result = phase2Image.complete && phase2Image.naturalHeight === 0 ? 'blocked' : 'loaded';
+
+        assert_equals(phase2Result, 'loaded', 'Phase 2: Image should load (policy expired after max-age=1)');
+
+    }, 'WAICT policy with max-age=1 expires after 2+ seconds');
+</script>
+</body>

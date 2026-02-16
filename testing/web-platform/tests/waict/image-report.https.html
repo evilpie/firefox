@@ -1,0 +1,185 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WAICT: Image tests with report mode</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="/reporting/resources/report-helper.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
+<body>
+<script>
+  // Currently supported test scenarios:
+  // 1. Image with correct hash present in the manifest in the hashes section
+  // 2. Image with incorrect hash present in the manifest in the hashes section
+  // 3. Image with hash present in the manifest in the any_hashes section
+  // 4. Image with incorrect hash in the any_hashes section
+  // 5. Image not present in the manifest at all
+
+  // Test 1: Image with a correct hash in manifest (hashes section):
+
+  // Check that:                                                      
+  // - Image loads successfully                                                      
+  // - No integrity violation reports generated  
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    const loadPromise = new Promise((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Image failed to load'));
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/correct.png';
+
+    await loadPromise;
+    assert_true(img.complete, 'Image should load successfully when hash matches');
+
+    // No reports should be generated for correct hash
+    assert_equals(reports.length, 0, 'Should not generate any integrity violation reports for correct hash');
+  }, 'Image with correct hash should load without generating reports (report mode)');
+
+
+  // Test 2: Image with an incorrect hash in manifest (hashes section):
+  
+  // Test incorrect image hash behavior:
+  // Check that:
+  // - Image loads successfully (report mode doesn't block)
+  // - Integrity violation report is generated
+  // TODO: Add a check with a correct exception for each test case. 
+
+  // AW: the last one does not work, have I screwed up smth in the test? :(
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    let imageResult = null; // 'loaded' or 'failed'
+
+    // Ok, this should be the same as above, but it's rn like here for testing purposes
+    // P.S. Maybe we resolve in all the cases? Just check the flag?
+    const loadPromise = new Promise((resolve) => {
+      img.onload = () => {
+        imageResult = 'loaded';
+        resolve();
+      };
+      img.onerror = () => {
+        imageResult = 'failed';
+        resolve();
+      };
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/incorrect.png';
+
+    await loadPromise;
+
+    // Wait a bit for reports
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // In report mode, image SHOULD load even with wrong hash
+    assert_equals(imageResult, 'loaded', 'Image should load in report mode even with wrong hash');
+
+    // Check integrity violation reports
+    // here the checkIntegrityViolationReport could take an error code as an input
+    // but for now it's a TODO
+    checkIntegrityViolationReport(reports, 'incorrect.png', true);
+  }, 'Image with wrong hash should still load but generate hash mismatch error (report mode)');
+
+  // Test 3: Image with a correct hash in manifest (wildcard section):
+
+  // Check that:
+  // - Image loads successfully when hash is in any_hashes
+  // - No integrity violation reports generated
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    const loadPromise = new Promise((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Image failed to load'));
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/correct_wildcards.png';
+
+    await loadPromise;
+    assert_true(img.complete, 'Image should load successfully when hash is in any_hashes');
+
+    // No reports should be generated for correct hash in any_hashes
+    assert_equals(reports.length, 0, 'Should not generate any integrity violation reports for hash in any_hashes');
+  }, 'Image with hash in any_hashes should load successfully (report mode)');
+
+  // Test 4: Image with a incorrect hash in manifest (wildcard section):
+
+  // Check that:
+  // - Image loads successfully
+  // - Integrity violation report is generated
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    let imageResult = null;
+
+    const loadPromise = new Promise((resolve) => {
+      img.onload = () => {
+        imageResult = 'loaded';
+        resolve();
+      };
+      img.onerror = () => {
+        imageResult = 'failed';
+        resolve();
+      };
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/incorrect_wildcards.png';
+
+    await loadPromise;
+
+    // Wait a bit for reports
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // In report mode, image SHOULD load even with wrong hash in any_hashes
+    assert_equals(imageResult, 'loaded', 'Image should load in report mode even with wrong hash in any_hashes');
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'incorrect_wildcards.png', true);
+  }, 'Image with wrong hash in any_hashes should still load but generate violation (report mode)');
+
+  // Test 5: Image not in manifest at all
+
+  // Check that:
+  // - Image loads successfully
+  // - Integrity violation report is generated
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    let imageResult = null;
+
+    const loadPromise = new Promise((resolve) => {
+      img.onload = () => {
+        imageResult = 'loaded';
+        resolve();
+      };
+      img.onerror = () => {
+        imageResult = 'failed';
+        resolve();
+      };
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/no_hash.png';
+
+    await loadPromise;
+
+    // Wait a bit for reports
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // In report mode, image SHOULD load even when not in manifest
+    assert_equals(imageResult, 'loaded', 'Image should load in report mode even when not in manifest');
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'no_hash.png', true);
+  }, 'Image not in manifest should still load but generate violation (report mode)');
+</script>
+</body>

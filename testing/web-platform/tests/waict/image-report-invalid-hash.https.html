@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WAICT: Image test with invalid hash format in manifest (report mode)</title>
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="/reporting/resources/report-helper.js"></script>
+<script src="resources/waict-test-helpers.js"></script>
+<body>
+<script>
+  // Test: Manifest with invalid hash format (too long), blocked-destinations=(script)
+  // Even though images are not in blocked-destinations, ValidateManifest fails
+  // Invalid manifest affects all resources regardless of blocked-destinations
+  // In report mode: image should load but generate violation report
+
+  promise_test(async t => {
+    const reports = setupIntegrityViolationObserver(t);
+
+    const img = document.createElement('img');
+    let imageResult = null;
+
+    const imagePromise = new Promise((resolve) => {
+      img.onload = () => {
+        imageResult = 'loaded';
+        resolve();
+      };
+      img.onerror = () => {
+        imageResult = 'failed';
+        resolve();
+      };
+    });
+
+    document.body.appendChild(img);
+    img.src = 'resources/correct.png';
+
+    await imagePromise;
+
+    // Wait a bit for reports
+    await new Promise(resolve => t.step_timeout(resolve, 100));
+
+    // In report mode, image SHOULD load even with invalid manifest
+    assert_equals(imageResult, 'loaded', 'Image should load in report mode even with invalid hash format in manifest');
+
+    // Check integrity violation reports
+    checkIntegrityViolationReport(reports, 'correct.png', true);
+  }, 'Image should load but generate violation when manifest has invalid hash format even though images not in blocked-destinations (report mode)');
+</script>
+</body>
