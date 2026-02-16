@@ -21,6 +21,10 @@
 #include "mozilla/Mutex.h"
 #include "ImageCacheKey.h"
 
+#ifdef NIGHTLY_BUILD
+#include "mozilla/dom/ResourceHasher.h"
+#endif
+
 class imgCacheValidator;
 class imgLoader;
 class imgRequestProxy;
@@ -208,6 +212,12 @@ class imgRequest final : public nsIThreadRetargetableStreamListener,
     return mShouldReportRenderTimeForLCP;
   }
 
+#ifdef NIGHTLY_BUILD
+  mozilla::dom::ResourceHasher* GetResourceHasher() const {
+    return mResourceHasher;
+  }
+#endif
+
  private:
   friend class FinishPreparingForNewPartRunnable;
 
@@ -303,6 +313,11 @@ class imgRequest final : public nsIThreadRetargetableStreamListener,
   bool mHadInsecureRedirect : 1 MOZ_GUARDED_BY(mMutex);
   // The ID of the inner window origin, used for error reporting.
   uint64_t mInnerWindowId MOZ_GUARDED_BY(mMutex);
+
+#ifdef NIGHTLY_BUILD
+  // Hasher for resource integrity verification.
+  RefPtr<mozilla::dom::ResourceHasher> mResourceHasher;
+#endif
 };
 
 #endif  // mozilla_image_imgRequest_h

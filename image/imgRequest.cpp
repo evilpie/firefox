@@ -687,7 +687,27 @@ imgRequest::OnStartRequest(nsIRequest* aRequest) {
         return rv;
       }
     }
+
+#ifdef NIGHTLY_BUILD
+    nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
+    nsCOMPtr<nsISupports> loadingContext = loadInfo->GetLoadingContext();
+
+    RefPtr<Document> doc;
+    if (nsCOMPtr<nsINode> node = do_QueryInterface(loadingContext)) {
+      doc = node->OwnerDoc();
+    }
+
+    if (doc) {
+      if (auto* policy = PolicyContainer::GetIntegrityPolicyWAICT(
+              doc->GetPolicyContainer())) {
+        if (policy->ShouldHandle(IntegrityPolicy::DestinationType::Image)) {
+          // Initialize the hasher for resource integrity verification.
+          mResourceHasher = ResourceHasher::Init();
+        }
+      }
+    }
   }
+#endif
 
   SetCacheValidation(mCacheEntry, aRequest, /* aForceTouch = */ true);
 
@@ -1000,6 +1020,31 @@ imgRequest::OnDataAvailable(nsIRequest* aRequest, nsIInputStream* aInStr,
   LOG_SCOPE_WITH_PARAM(gImgLog, "imgRequest::OnDataAvailable", "count", aCount);
 
   NS_ASSERTION(aRequest, "imgRequest::OnDataAvailable -- no request!");
+
+#ifdef NIGHTLY_BUILD
+  if (aInStr && mResourceHasher) {
+    nsAutoCString buffer;
+    buffer.SetLength(aCount);
+    uint32_t bytesRead = 0;
+
+    nsCOMPtr<nsICloneableInputStream> cloneable = do_QueryInterface(aInStr);
+    if (cloneable && cloneable->GetCloneable()) {
+      nsCOMPtr<nsIInputStream> cloneInStrForHash;
+      cloneable->Clone(getter_AddRefs(cloneInStrForHash));
+
+      if (cloneInStrForHash) {
+        nsresult rv =
+            cloneInStrForHash->Read(buffer.BeginWriting(), aCount, &bytesRead);
+        if (NS_SUCCEEDED(rv) && bytesRead > 0) {
+          // Just call Update - logging happens inside
+          mResourceHasher->Update(
+              reinterpret_cast<const uint8_t*>(buffer.BeginReading()),
+              bytesRead);
+        }
+      }
+    }
+  }
+#endif
 
   RefPtr<Image> image;
   RefPtr<ProgressTracker> progressTracker;
