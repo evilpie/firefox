@@ -49,6 +49,7 @@ EXPORTS += [
 ]
 
 UNIFIED_SOURCES += [
+    "ConnectionAllowlists.cpp",
     "ConnectionAllowlistsService.cpp",
     "CSPEvalChecker.cpp",
     "CSPViolationData.cpp",

@@ -1624,6 +1624,7 @@ class Document : public nsINode,
   nsresult InitCSP(nsIChannel* aChannel);
   nsresult InitIntegrityPolicy(nsIChannel* aChannel);
   nsresult InitIntegrityPolicyWAICT(nsIChannel* aChannel);
+  nsresult InitConnectionAllowlists(nsIChannel* aChannel);
   nsresult InitCOEP(nsIChannel* aChannel);
   nsresult InitDocPolicy(nsIChannel* aChannel);
   nsresult InitTLSCertificateBinding(nsIChannel* aChannel);
