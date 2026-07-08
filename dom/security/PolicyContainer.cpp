@@ -4,6 +4,7 @@
 
 #include "PolicyContainer.h"
 
+#include "mozilla/dom/ConnectionAllowlists.h"
 #include "mozilla/dom/IntegrityPolicy.h"
 #include "mozilla/dom/IntegrityPolicyWAICT.h"
 #include "mozilla/dom/nsCSPContext.h"
@@ -239,6 +240,24 @@ IntegrityPolicyWAICT* PolicyContainer::GetIntegrityPolicyWAICT(
     return nullptr;
   }
   return PolicyContainer::Cast(aPolicyContainer)->GetIntegrityPolicyWAICT();
+}
+
+// == Connection Allowlists ==
+void PolicyContainer::SetConnectionAllowlists(
+    ConnectionAllowlists* aAllowlists) {
+  mConnectionAllowlists = aAllowlists;
+}
+
+ConnectionAllowlists* PolicyContainer::GetConnectionAllowlists() const {
+  return mConnectionAllowlists;
+}
+
+ConnectionAllowlists* PolicyContainer::GetConnectionAllowlists(
+    const nsIPolicyContainer* aPolicyContainer) {
+  if (!aPolicyContainer) {
+    return nullptr;
+  }
+  return PolicyContainer::Cast(aPolicyContainer)->GetConnectionAllowlists();
 }
 
 // == IP Address Space ==
