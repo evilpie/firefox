@@ -13,6 +13,19 @@ ConnectionAllowlistsService::ShouldLoad(nsIURI* aContentLocation,
                                         nsILoadInfo* aLoadInfo,
                                         int16_t* aDecision) {
   *aDecision = nsIContentPolicy::ACCEPT;
+
+  nsCOMPtr<nsIPolicyContainer> policyContainer =
+      aLoadInfo->GetPolicyContainer();
+  RefPtr<ConnectionAllowlists> allowlists =
+      PolicyContainer::GetConnectionAllowlists(policyContainer);
+  if (!allowlists) {
+    return NS_OK;
+  }
+
+  if (allowlists->ShouldLoadBeBlocked(aContentLocation, aLoadInfo)) {
+    *aDecision = nsIContentPolicy::REJECT_REQUEST;
+  }
+
   return NS_OK;
 }
 

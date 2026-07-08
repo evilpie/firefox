@@ -4,10 +4,12 @@
 
 #include "ConnectionAllowlists.h"
 
+#include <functional>
 #include <utility>
 
 #include "mozilla/Logging.h"
 #include "mozilla/net/SFV.h"
+#include "mozilla/net/URLPatternGlue.h"
 #include "nsContentUtils.h"
 #include "nsIURI.h"
 #include "nsString.h"
@@ -154,6 +156,69 @@ nsresult ConnectionAllowlists::ParseHeaders(const nsACString& aHeader,
   allowlists->mReportOnly = std::move(reportOnly);
   allowlists.forget(aResult);
   return NS_OK;
+}
+
+// https://wicg.github.io/connection-allowlists/#abstract-opdef-match-a-url-to-a-connection-allowlist
+/* static */
+bool ConnectionAllowlists::MatchURL(nsIURI* aURI, const Allowlist& aAllowlist) {
+  // 1. If url is local, return success.
+  // TODO: helper? add chrome:?
+  if (aURI->SchemeIs("about") || aURI->SchemeIs("data") ||
+      aURI->SchemeIs("blob")) {
+    return true;
+  }
+
+  // XXX This seems like something we should have abstracted.
+  nsAutoCString spec;
+  if (NS_WARN_IF(NS_FAILED(aURI->GetSpec(spec)))) {
+    return false;
+  }
+  UrlPatternInput input = net::CreateUrlPatternInput(spec);
+
+  // 2. For each pattern in connection allowlist’s allowlist:
+  for (const auto& pattern : aAllowlist.mPatterns) {
+    // 2.1. If URL pattern matching given pattern and url does not return null,
+    // return success.
+    // XXX: Is this the right method?
+    if (net::UrlPatternTest(pattern.get(), input, Nothing())) {
+      return true;
+    }
+  }
+
+  // 3. Return failure.
+  return false;
+}
+
+// https://wicg.github.io/connection-allowlists/#abstract-opdef-should-url-be-blocked-by-connection-allowlists
+bool ConnectionAllowlists::ShouldLoadBeBlocked(nsIURI* aURI,
+                                               nsILoadInfo* aLoadInfo) const {
+  // TODO: We probably need to exempt some content like in SubjectToCSP.
+
+  // 1. For each connection allowlist in connection allowlists:
+  for (const Maybe<Allowlist>& allowlist :
+       {std::cref(mEnforcement), std::cref(mReportOnly)}) {
+    if (allowlist.isNothing()) {
+      continue;
+    }
+
+    // 1.1. If url matches connection allowlist, continue.
+    if (MatchURL(aURI, *allowlist)) {
+      continue;
+    }
+
+    // 1.2. Report a violation given url, environment, and connection
+    // allowlist.
+    // TODO
+
+    // 1.3. If connection allowlist's disposition is enforce, return blocked.
+    if (allowlist->mDisposition == Disposition::Enforce) {
+      LOG("Blocking the URL: {}", aURI->GetSpecOrDefault());
+      return true;
+    }
+  }
+
+  // 2. Return allowed.
+  return false;
 }
 
 }  // namespace mozilla::dom

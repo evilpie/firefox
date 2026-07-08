@@ -38,6 +38,8 @@ class ConnectionAllowlists final {
                                nsIURI* aResponseURI,
                                ConnectionAllowlists** aResult);
 
+  bool ShouldLoadBeBlocked(nsIURI* aURI, nsILoadInfo* aLoadInfo) const;
+
  private:
   ~ConnectionAllowlists() = default;
 
@@ -69,6 +71,8 @@ class ConnectionAllowlists final {
   static Maybe<Allowlist> ParseConnectionAllowlistHeader(
       const nsACString& aHeader, nsIURI* aResponseURI,
       Disposition aDisposition);
+
+  static bool MatchURL(nsIURI* aURI, const Allowlist& aAllowlist);
 
   Maybe<Allowlist> mEnforcement;
   Maybe<Allowlist> mReportOnly;
