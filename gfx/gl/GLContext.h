@@ -112,6 +112,7 @@ enum class GLFeature {
   occlusion_query_boolean,
   occlusion_query2,
   packed_depth_stencil,
+  polygon_offset_clamp,
   prim_restart,
   prim_restart_fixed,
   provoking_vertex,
@@ -407,6 +408,7 @@ class GLContext : public GenericAtomicRefCounted, public SupportsWeakPtr {
     ARB_map_buffer_range,
     ARB_occlusion_query2,
     ARB_pixel_buffer_object,
+    ARB_polygon_offset_clamp,
     ARB_provoking_vertex,
     ARB_robust_buffer_access_behavior,
     ARB_robustness,
@@ -450,6 +452,7 @@ class GLContext : public GenericAtomicRefCounted, public SupportsWeakPtr {
     EXT_multisampled_render_to_texture,
     EXT_occlusion_query_boolean,
     EXT_packed_depth_stencil,
+    EXT_polygon_offset_clamp,
     EXT_provoking_vertex,
     EXT_read_format_bgra,
     EXT_robustness,
@@ -1595,6 +1598,13 @@ class GLContext : public GenericAtomicRefCounted, public SupportsWeakPtr {
   void fPolygonOffset(GLfloat factor, GLfloat bias) {
     BEFORE_GL_CALL;
     mSymbols.fPolygonOffset(factor, bias);
+    AFTER_GL_CALL;
+  }
+
+  void fPolygonOffsetClamp(GLfloat factor, GLfloat units, GLfloat clamp) {
+    BEFORE_GL_CALL;
+    ASSERT_SYMBOL_PRESENT(fPolygonOffsetClamp);
+    mSymbols.fPolygonOffsetClamp(factor, units, clamp);
     AFTER_GL_CALL;
   }
 

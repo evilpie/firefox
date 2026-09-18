@@ -1443,6 +1443,7 @@ class ClientWebGLContext final : public nsICanvasRenderingContextInternal,
   void PixelStorei(GLenum pname, GLint param);
 
   void PolygonOffset(GLfloat factor, GLfloat units);
+  void PolygonOffsetClampEXT(GLfloat factor, GLfloat units, GLfloat clamp);
 
   void SampleCoverage(GLclampf value, WebGLboolean invert);
 
