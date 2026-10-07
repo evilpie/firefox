@@ -344,6 +344,10 @@ class PeerConnectionImpl final
 
   bool DuplicateFingerprintQuirk() { return mDuplicateFingerprintQuirk; }
 
+  bool BlockedByConnectionAllowlists() const {
+    return mBlockedByConnectionAllowlists;
+  }
+
   NS_IMETHODIMP GetFingerprint(char** fingerprint);
   void GetFingerprint(nsAString& fingerprint) {
     char* tmp;
@@ -811,6 +815,8 @@ class PeerConnectionImpl final
   // Ensure ICE transports exist that we might need when offer/answer concludes
   void EnsureTransports(const JsepSession& aSession);
 
+  std::vector<std::string> GetOwnTransportIds() const;
+
   void UpdateRTCDtlsTransports();
   // Creates/updates mSctpTransport based on whether a data section has
   // appeared in an SDP. May run in have-remote-offer, where the
@@ -896,6 +902,10 @@ class PeerConnectionImpl final
 
   // Set if prefs dictate that we should force the use of a web proxy.
   bool mForceProxy = false;
+
+  // Set if the window's Connection Allowlists block WebRTC, which makes every
+  // ICE candidate administratively prohibited.
+  bool mBlockedByConnectionAllowlists = false;
 
   // Used to cancel incoming stun addrs response
   RefPtr<net::StunAddrsRequestChild> mStunAddrsRequest;

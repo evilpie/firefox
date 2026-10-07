@@ -118,6 +118,8 @@ interface PeerConnectionImpl  {
 
   readonly attribute boolean duplicateFingerprintQuirk;
 
+  readonly attribute boolean blockedByConnectionAllowlists;
+
   readonly attribute RTCSctpTransport? sctp;
 
   /* Data channels */

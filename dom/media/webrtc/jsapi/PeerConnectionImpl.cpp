@@ -82,11 +82,13 @@
 #include "mozilla/PublicSSL.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/dom/BrowserChild.h"
+#include "mozilla/dom/ConnectionAllowlists.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Event.h"
 #include "mozilla/dom/Location.h"
 #include "mozilla/dom/PeerConnectionImplBinding.h"
 #include "mozilla/dom/PluginCrashedEvent.h"
+#include "mozilla/dom/PolicyContainer.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/RTCCertificate.h"
 #include "mozilla/dom/RTCDataChannelBinding.h"
@@ -491,6 +493,14 @@ nsresult PeerConnectionImpl::Initialize(PeerConnectionObserver& aObserver,
   mWindow = aWindow;
   NS_ENSURE_STATE(mWindow);
 
+  if (Document* doc = mWindow->GetExtantDoc()) {
+    if (dom::ConnectionAllowlists* allowlists =
+            PolicyContainer::GetConnectionAllowlists(
+                doc->GetPolicyContainer())) {
+      mBlockedByConnectionAllowlists = allowlists->ShouldBlockWebRTC(mWindow);
+    }
+  }
+
   // Now rummage through the objects to get a usable origin
   nsCOMPtr<nsIScriptGlobalObject> sgo = do_QueryInterface(mWindow);
   NS_ENSURE_STATE(sgo);
@@ -565,7 +575,7 @@ nsresult PeerConnectionImpl::Initialize(PeerConnectionObserver& aObserver,
                                   header.direction);
   }
 
-  if (XRE_IsContentProcess()) {
+  if (XRE_IsContentProcess() && !mBlockedByConnectionAllowlists) {
     mStunAddrsRequest =
         net::StunAddrsRequestChild::Create(new StunAddrsHandler(this));
   }
@@ -1816,6 +1826,19 @@ PeerConnectionImpl::AddIceCandidate(
     const dom::Nullable<unsigned short>& aLevel) {
   PC_AUTO_ENTER_API_CALL(true);
 
+  // All candidates are administratively prohibited.
+  if (mBlockedByConnectionAllowlists) {
+    GetMainThreadSerialEventTarget()->Dispatch(NS_NewRunnableFunction(
+        __func__, [this, self = RefPtr<PeerConnectionImpl>(this)] {
+          if (IsClosed()) {
+            return;
+          }
+          JSErrorResult rv;
+          mPCObserver->OnAddIceCandidateSuccess(rv);
+        }));
+    return NS_OK;
+  }
+
   // TODO(https://bugzilla.mozilla.org/show_bug.cgi?id=2036944)
   // Tighten this up.
 
@@ -2611,8 +2634,12 @@ void PeerConnectionImpl::SetConfiguration(
 
 nsresult PeerConnectionImpl::SetConfiguration(
     const RTCConfiguration& aConfiguration) {
-  nsresult rv = mTransportHandler->SetIceConfig(
-      aConfiguration.mIceServers, aConfiguration.mIceTransportPolicy);
+  nsresult rv =
+      mBlockedByConnectionAllowlists
+          ? mTransportHandler->SetIceConfig(nsTArray<dom::RTCIceServer>(),
+                                            aConfiguration.mIceTransportPolicy)
+          : mTransportHandler->SetIceConfig(aConfiguration.mIceServers,
+                                            aConfiguration.mIceTransportPolicy);
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return rv;
   }
@@ -2640,7 +2667,8 @@ nsresult PeerConnectionImpl::SetConfiguration(
     mRequestedPrivacy = Some(PrincipalPrivacy::Private);
   }
 
-  auto proxyConfig = GetProxyConfig();
+  auto proxyConfig =
+      mBlockedByConnectionAllowlists ? nullptr : GetProxyConfig();
   if (proxyConfig) {
     // Note that this could check if PrivacyRequested() is set on the PC and
     // remove "webrtc" from the ALPN list.  But that would only work if the PC
@@ -2663,6 +2691,9 @@ RTCSctpTransport* PeerConnectionImpl::GetSctp() const {
 }
 
 void PeerConnectionImpl::RestartIce() {
+  if (mBlockedByConnectionAllowlists) {
+    return;
+  }
   RestartIceNoRenegotiationNeeded();
   // Update the negotiation-needed flag for connection.
   UpdateNegotiationNeeded();
@@ -4338,6 +4369,17 @@ void PeerConnectionImpl::EnsureTransports(const JsepSession& aSession) {
   GatherIfReady();
 }
 
+std::vector<std::string> PeerConnectionImpl::GetOwnTransportIds() const {
+  std::vector<std::string> transportIds;
+  mJsepSession->ForEachTransceiver(
+      [&transportIds](const JsepTransceiver& aTransceiver) {
+        if (aTransceiver.HasOwnTransport()) {
+          transportIds.push_back(aTransceiver.mTransport.mTransportId);
+        }
+      });
+  return transportIds;
+}
+
 void PeerConnectionImpl::UpdateRTCDtlsTransports() {
   mJsepSession->ForEachTransceiver([this,
                                     self = RefPtr<PeerConnectionImpl>(this)](
@@ -4559,6 +4601,18 @@ void PeerConnectionImpl::StartIceChecks(const JsepSession& aSession) {
              mJsepSession->GetState() == kJsepStateHaveLocalPranswer ||
              mJsepSession->GetState() == kJsepStateHaveRemotePranswer);
 
+  if (mBlockedByConnectionAllowlists) {
+    // Without any candidates, ICE fails for every transport.
+    for (const std::string& transportId : GetOwnTransportIds()) {
+      GetMainThreadSerialEventTarget()->Dispatch(NS_NewRunnableFunction(
+          __func__, [self = RefPtr<PeerConnectionImpl>(this), transportId] {
+            self->IceConnectionStateChange(
+                transportId, RTCIceTransportState::Failed, Nothing());
+          }));
+    }
+    return;
+  }
+
   auto transports = GetActiveTransports();
 
   if (!mCanRegisterMDNSHostnamesDirectly) {
@@ -4623,6 +4677,10 @@ void PeerConnectionImpl::AddIceCandidate(const std::string& aCandidate,
                                          const std::string& aUfrag) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(!aTransportId.empty());
+
+  if (mBlockedByConnectionAllowlists) {
+    return;
+  }
 
   bool obfuscate_host_addresses = Preferences::GetBool(
       "media.peerconnection.ice.obfuscate_host_addresses", false);
@@ -4779,6 +4837,18 @@ nsresult PeerConnectionImpl::SetTargetForDefaultLocalAddressLookup() {
 
 void PeerConnectionImpl::EnsureIceGathering(bool aDefaultRouteOnly,
                                             bool aObfuscateHostAddresses) {
+  if (mBlockedByConnectionAllowlists) {
+    // No candidate can be gathered, so gathering completes right away.
+    for (const std::string& transportId : GetOwnTransportIds()) {
+      GetMainThreadSerialEventTarget()->Dispatch(NS_NewRunnableFunction(
+          __func__, [self = RefPtr<PeerConnectionImpl>(this), transportId] {
+            self->IceGatheringStateChange(transportId,
+                                          dom::RTCIceGathererState::Complete);
+          }));
+    }
+    return;
+  }
+
   if (!mTargetForDefaultLocalAddressLookupIsSet) {
     nsresult rv = SetTargetForDefaultLocalAddressLookup();
     if (NS_FAILED(rv)) {

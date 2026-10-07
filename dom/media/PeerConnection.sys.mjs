@@ -455,6 +455,9 @@ export class RTCPeerConnection {
   setConfiguration(rtcConfig) {
     this._checkClosed();
     this._validateConfig(rtcConfig);
+    if (this._pc.blockedByConnectionAllowlists) {
+      rtcConfig = Object.assign({}, rtcConfig, { iceServers: [] });
+    }
     this._checkIfIceRestartRequired(rtcConfig);
 
     // Allow prefs to tweak these settings before passing to c++, but hide all
