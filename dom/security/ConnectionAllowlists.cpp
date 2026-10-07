@@ -179,7 +179,6 @@ void ConnectionAllowlists::SetResponseURI(nsIURI* aURI) {
 bool ConnectionAllowlists::ShouldLoad(nsIURI* aURI,
                                       nsILoadInfo* aLoadInfo) const {
   // TODO: We probably need to exempt some content like in SubjectToCSP.
-  // TODO(Bug 2072261): WebRTC.
   // TODO: Requests vs URL.
 
   switch (aLoadInfo->GetExternalContentPolicyType()) {
@@ -260,7 +259,12 @@ bool ConnectionAllowlists::ShouldBlockURL(nsIURI* aURI,
 
     // 1.2. Report a violation given url, environment, and connection
     // allowlist.
-    ReportViolation(AsVariant(aURI), aLoadInfo, *allowlist);
+    // TODO: This will fail when blocking in the parent process for e.g.
+    // navigation.
+    nsCOMPtr<nsPIDOMWindowInner> window =
+        nsGlobalWindowInner::GetInnerWindowWithId(
+            aLoadInfo->GetInnerWindowID());
+    ReportViolation(AsVariant(aURI), window, *allowlist);
 
     // 1.3. If connection allowlist's disposition is enforce, return blocked.
     if (allowlist->mDisposition == Disposition::Enforce) {
@@ -273,23 +277,51 @@ bool ConnectionAllowlists::ShouldBlockURL(nsIURI* aURI,
   return false;
 }
 
+// https://wicg.github.io/connection-allowlists/#abstract-opdef-should-webrtc-be-blocked-by-connection-allowlists
+bool ConnectionAllowlists::ShouldBlockWebRTC(
+    nsPIDOMWindowInner* aWindow) const {
+  // 1. Let allowlists be environment’s policy container’s connection
+  // allowlists.
+  // 2. For each connection allowlist in allowlists:
+  for (const Maybe<Allowlist>& allowlist :
+       {std::cref(mEnforcement), std::cref(mReportOnly)}) {
+    if (allowlist.isNothing()) {
+      continue;
+    }
+
+    // 2.1. If connection allowlist’s webrtc is allow, continue.
+    if (allowlist->mWebRTC == WebRTC::Allow) {
+      continue;
+    }
+
+    // 2.2. Report a violation given "webrtc", environment, and connection
+    // allowlist.
+    ReportViolation(AsVariant(nsCString("webrtc"_ns)), aWindow, *allowlist);
+
+    // 2.3. If connection allowlist’s disposition is enforce, return blocked.
+    if (allowlist->mDisposition == Disposition::Enforce) {
+      LOG("Blocking WebRTC");
+      return true;
+    }
+  }
+
+  // 3. Return allowed.
+  return false;
+}
+
 // https://wicg.github.io/connection-allowlists/#abstract-opdef-report-a-violation
 /* static */
 void ConnectionAllowlists::ReportViolation(
-    const Variant<nsIURI*, nsCString>& aResource, nsILoadInfo* aLoadInfo,
+    const Variant<nsIURI*, nsCString>& aResource, nsPIDOMWindowInner* aWindow,
     const Allowlist& aAllowlist) {
   // 1. If allowlist’s reporting endpoint is null, return.
   if (aAllowlist.mReportingEndpoint.IsEmpty()) {
     return;
   }
 
-  // The report is queued on the environment that initiated the load.
-  // TODO: This will fail when blocking in the parent process for e.g.
-  // navigation.
-  RefPtr<nsGlobalWindowInner> window =
-      nsGlobalWindowInner::GetInnerWindowWithId(aLoadInfo->GetInnerWindowID());
+  nsCOMPtr<nsPIDOMWindowInner> window = aWindow;
   if (!window) {
-    LOG("Not reporting a violation, no global for the load.");
+    LOG("Not reporting a violation, no global for the environment.");
     return;
   }
 
@@ -323,9 +355,10 @@ void ConnectionAllowlists::ReportViolation(
   //
   // disposition
   //   allowlist’s disposition.
+  nsIGlobalObject* global = window->AsGlobal();
   RefPtr<ConnectionAllowlistViolationReportBody> violation =
       new ConnectionAllowlistViolationReportBody(
-          window, url, connection, aAllowlist.mSerializedPatterns.Clone(),
+          global, url, connection, aAllowlist.mSerializedPatterns.Clone(),
           aAllowlist.mDisposition == Disposition::Enforce
               ? ConnectionAllowlistDisposition::Enforce
               : ConnectionAllowlistDisposition::Report);
@@ -333,7 +366,7 @@ void ConnectionAllowlists::ReportViolation(
   // 3. Generate and queue a report given environment as the context,
   // "connection-allowlist" as the type, allowlist’s reporting endpoint as the
   // destination, and violation as the data.
-  ReportingUtils::Report(window, nsGkAtoms::connection_allowlist,
+  ReportingUtils::Report(global, nsGkAtoms::connection_allowlist,
                          aAllowlist.mReportingEndpoint, url, violation);
 }
 
