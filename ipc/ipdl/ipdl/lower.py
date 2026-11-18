@@ -1580,7 +1580,6 @@ class _GenerateProtocolCode(ipdl.ast.Visitor):
 
             if su.decl.type.hasTaintedFields():
                 aggregateTypeIncludes.update([
-                    "<concepts>",
                     "mozilla/Maybe.h",
                     "mozilla/Tainting.h",
                 ])
@@ -1590,9 +1589,7 @@ class _GenerateProtocolCode(ipdl.ast.Visitor):
             hf.addthings([Whitespace("// Headers for typedefs"), Whitespace.NL])
 
             for headername in sorted(iter(aggregateTypeIncludes)):
-                if not headername.startswith("<"):
-                    headername = '"' + headername + '"'
-                hf.addthing(CppDirective("include", headername))
+                hf.addthing(CppDirective("include", '"' + headername + '"'))
 
         # Manually run Visitor.visitTranslationUnit. For dependency resolution
         # we need to handle structs and unions separately.
@@ -1674,23 +1671,17 @@ class _GenerateProtocolCode(ipdl.ast.Visitor):
             clsdecl, methoddefns = _splitClassDeclDefn(cls)
 
             validator = []
+            validatorDefns = []
             if su.decl.type.hasTaintedFields():
+                vdecl, vdefn = _generateTaintedFieldsValidator(su)
                 validator = [
                     Whitespace.NL,
-                    _putInNamespaces(
-                        Whitespace(_generateTaintedFieldsValidator(su)), su.namespaces
-                    ),
+                    _putInNamespaces(Whitespace(vdecl), su.namespaces),
                 ]
-                # The validator concepts of nested types must be declared
-                # before ours.
-                for c in su.decl.type.taintComponents():
-                    _, kind, base = taintedFieldKind(c)
-                    if (
-                        kind == "nested"
-                        and base not in fulldecltypes
-                        and not su.decl.type.mutuallyRecursiveWith(base)
-                    ):
-                        fulldecltypes.append(base)
+                validatorDefns = [
+                    Whitespace.NL,
+                    _putInNamespaces(Whitespace(vdefn), su.namespaces),
+                ]
 
             # Store the declarations in the decls map so we can emit in
             # dependency order.
@@ -1713,19 +1704,22 @@ class _GenerateProtocolCode(ipdl.ast.Visitor):
                 + validator,
             )
 
-            self.structUnionDefns.extend([
-                Whitespace(
-                    """
+            self.structUnionDefns.extend(
+                [
+                    Whitespace(
+                        """
 //-----------------------------------------------------------------------------
 // Method definitions for the IPDL type |%s %s|
 //
 """
-                    % (which, su.name)
-                ),
-                _putInNamespaces(methoddefns, su.namespaces),
-                Whitespace.NL,
-                traitsdefns,
-            ])
+                        % (which, su.name)
+                    ),
+                    _putInNamespaces(methoddefns, su.namespaces),
+                    Whitespace.NL,
+                    traitsdefns,
+                ]
+                + validatorDefns
+            )
 
         # Generate the declarations structs in dependency order.
         def gen_struct(deps, defn):
@@ -2521,25 +2515,23 @@ def _indentLines(lines, n):
 
 
 def _generateTaintedFieldsValidator(su):
-    """Generate, for a struct or union |su| containing [Tainted] data, a C++
-    concept |Validates<Name>| listing one hook per tainted member, and the
-    |ValidateTaintedFields| function that runs those hooks to remove the
-    Tainted<> wrapper.
+    """Generate, for a struct or union |su| containing [Tainted] data, an
+    abstract C++ class |<Name>Validator| with one pure virtual hook per tainted
+    member, and the |ValidateTaintedFields| functions that run those hooks to
+    remove the Tainted<> wrapper. Returns (header, cpp) source strings.
 
     A [Tainted] member |foo| of type T requires the hook
     |bool ValidateFoo(const T&)|. A member |bar| of a struct or union type U
-    which contains [Tainted] data requires the accessor |Bar()|, returning a
-    validator satisfying |ValidatesU|. Union members are named after their
-    variant instead. Array, Maybe and UniquePtr members apply the hook to each
-    present element. Members marked [NoTaint] are skipped. For a member whose
-    type is mutually recursive with |su|, the accessor's result is only
-    checked against |ValidatesU| when it is used."""
+    which contains [Tainted] data, and so has its own validator, requires the
+    hook |bool ValidateBar(Tainted<const U&>)|. Union members are named after
+    their variant instead. Array, Maybe and UniquePtr members apply the hook to each
+    present element. Members marked [NoTaint] are skipped."""
     name = su.name
-    concept = "Validates" + name
+    validator = name + "Validator"
 
     if isinstance(su, StructDecl):
         members = [
-            (f.ipdltype, f.name[0].upper() + f.name[1:], "aValue.%s()" % f.name, None)
+            (f.ipdltype, f.name[0].upper() + f.name[1:], "value.%s()" % f.name, None)
             for f, noTaint in zip(su.fields_ipdl_order(), su.decl.type.fieldNoTaint)
             if not noTaint
         ]
@@ -2548,111 +2540,102 @@ def _generateTaintedFieldsValidator(su):
             (
                 c.ipdltype,
                 c.flattypename,
-                "aValue.%s()" % c.getTypeName(),
+                "value.%s()" % c.getTypeName(),
                 "%s::%s" % (name, c.enum()),
             )
             for c in su.components
         ]
 
-    requirements = []
-    hookParams = []
+    hooks = []
     cases = []
     for ipdltype, hookname, getter, enum in members:
         wrappers, kind, base = taintedFieldKind(ipdltype)
         if kind is None:
             continue
 
-        if kind == "leaf":
-            param = "a" + hookname
-            basetype = _cxxTypeStr(_cxxConstRefType(base, None, fq=True))
-            hookParams.append("%s %s" % (basetype, param))
-            requirements.append(
-                "{ aValidator.Validate%s(%s) } -> std::same_as<bool>;"
-                % (hookname, param)
-            )
-        elif su.decl.type.mutuallyRecursiveWith(base):
-            # The concept for |base| may not be declared yet, so it is only
-            # checked when |base| is validated.
-            requirements.append("aValidator.%s();" % hookname)
-        else:
-            requirements.append(
-                "{ aValidator.%s() } -> %s;"
-                % (
-                    hookname,
-                    str(
-                        ipdl.ast.QualifiedId(
-                            None, "Validates" + base.name(), base.qname.quals
-                        )
-                    ),
-                )
-            )
-
-        def check(expr):
-            if kind == "leaf":
-                cond = "aValidator.Validate%s(%s)" % (hookname, expr)
-            else:
-                cond = "ValidateTaintedFieldsInPlace(%s, sub)" % expr
-            return ["if (!%s) {" % cond, "  return false;", "}"]
+        paramtype = _cxxTypeStr(_cxxConstRefType(base, None, fq=True))
+        if kind == "nested":
+            paramtype = "mozilla::Tainted<%s>" % paramtype
+        hooks.append(
+            "virtual bool Validate%s(%s a%s) = 0;" % (hookname, paramtype, hookname)
+        )
 
         def wrap(expr, depth, ws):
             if not ws:
-                return check(expr)
+                if kind == "nested":
+                    expr = "%s(%s)" % (paramtype, expr)
+                return [
+                    "if (!aValidator.Validate%s(%s)) {" % (hookname, expr),
+                    "  return false;",
+                    "}",
+                ]
             elem = "e%d" % depth
             if ws[0].isArray():
-                head = "for (auto& %s : %s) {" % (elem, expr)
+                head = "for (const auto& %s : %s) {" % (elem, expr)
                 inner = wrap(elem, depth + 1, ws[1:])
             else:
-                head = "if (auto& %s = %s) {" % (elem, expr)
+                head = "if (const auto& %s = %s) {" % (elem, expr)
                 inner = wrap("*" + elem, depth + 1, ws[1:])
             return [head] + _indentLines(inner, 2) + ["}"]
 
-        body = wrap(getter, 0, wrappers)
-        if kind == "nested":
-            body = ["auto&& sub = aValidator.%s();" % hookname] + body
-        cases.append((enum, body))
+        cases.append((enum, wrap(getter, 0, wrappers)))
 
-    out = [
+    taintedRef = "mozilla::Tainted<const %s&>" % name
+    header = [
         "",
-        "// Hooks needed to validate the tainted members of |%s|." % name,
-        "template <typename V>",
-        "concept %s = requires(V& aValidator%s) {"
-        % (concept, "".join(", " + p for p in hookParams)),
+        "// Validates the tainted members of |%s|." % name,
+        "class %s {" % validator,
+        " public:",
     ]
-    out += _indentLines(requirements, 2)
-    out += [
+    header += _indentLines(hooks, 2)
+    header += [
+        "",
+        " protected:",
+        "  virtual ~%s() = default;" % validator,
         "};",
         "",
-        "template <%s V>" % concept,
-        "[[nodiscard]] bool ValidateTaintedFieldsInPlace(%s& aValue, V& aValidator) {"
-        % name,
-    ]
-    if isinstance(su, StructDecl):
-        for _, body in cases:
-            out += ["  {"] + _indentLines(body, 4) + ["  }"]
-        out += ["  return true;"]
-    else:
-        out += ["  switch (aValue.type()) {"]
-        for enum, body in cases:
-            out += ["    case %s: {" % enum] + _indentLines(body, 6)
-            out += ["      return true;", "    }"]
-        out += ["    default:", "      return true;", "  }"]
-    out += [
-        "}",
+        "// Returns whether every tainted member of |aTainted| is valid according",
+        "// to |aValidator|.",
+        "[[nodiscard]] bool ValidateTaintedFields(",
+        "    %s aTainted, %s& aValidator);" % (taintedRef, validator),
         "",
         "// Validates every tainted member of |aTainted| using |aValidator|, and",
         "// returns the untainted value if all of them are valid.",
-        "template <%s V>" % concept,
         "[[nodiscard]] mozilla::Maybe<%s> ValidateTaintedFields(" % name,
-        "    mozilla::Tainted<%s>&& aTainted, V&& aValidator) {" % name,
+        "    mozilla::Tainted<%s>&& aTainted, %s& aValidator);" % (name, validator),
+        "",
+    ]
+
+    cpp = [
+        "",
+        "bool ValidateTaintedFields(",
+        "    %s aTainted, %s& aValidator) {" % (taintedRef, validator),
+        "  const %s& value = aTainted.Coerce();" % name,
+    ]
+    if isinstance(su, StructDecl):
+        for _, body in cases:
+            cpp += ["  {"] + _indentLines(body, 4) + ["  }"]
+        cpp += ["  return true;"]
+    else:
+        cpp += ["  switch (value.type()) {"]
+        for enum, body in cases:
+            cpp += ["    case %s: {" % enum] + _indentLines(body, 6)
+            cpp += ["      return true;", "    }"]
+        cpp += ["    default:", "      return true;", "  }"]
+    cpp += [
+        "}",
+        "",
+        "mozilla::Maybe<%s> ValidateTaintedFields(" % name,
+        "    mozilla::Tainted<%s>&& aTainted, %s& aValidator) {" % (name, validator),
         "  %s& value = aTainted.Coerce();" % name,
-        "  if (!ValidateTaintedFieldsInPlace(value, aValidator)) {",
+        "  if (!ValidateTaintedFields(%s(value), aValidator)) {" % taintedRef,
         "    return mozilla::Nothing();",
         "  }",
         "  return mozilla::Some(std::move(value));",
         "}",
         "",
     ]
-    return "\n".join(out)
+    return "\n".join(header), "\n".join(cpp)
 
 
 def _generateCxxStruct(sd):

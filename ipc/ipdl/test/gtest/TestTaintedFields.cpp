@@ -10,42 +10,68 @@ namespace mozilla::_ipdltest {
 
 // Owned by the component that defines PrincipalArgs, and reused by every
 // struct that embeds it.
-struct PrincipalArgsValidatorImpl {
-  const nsCString& mAllowedOrigin;
+class PrincipalArgsValidatorImpl final : public PrincipalArgsValidator {
+ public:
+  explicit PrincipalArgsValidatorImpl(const nsCString& aAllowedOrigin)
+      : mAllowedOrigin(aAllowedOrigin) {}
 
-  bool ValidateOrigin(const TaintedOrigin& aOrigin) {
+  bool ValidateOrigin(const TaintedOrigin& aOrigin) override {
     return aOrigin.spec() == mAllowedOrigin;
   }
-};
 
-struct PrincipalOrNoneValidatorImpl {
+ private:
   const nsCString& mAllowedOrigin;
-
-  PrincipalArgsValidatorImpl PrincipalArgs() { return {mAllowedOrigin}; }
 };
 
-struct LoadArgsValidatorImpl {
-  nsCString mAllowedOrigin;
-  int mTriggeringChecks = 0;
+class PrincipalOrNoneValidatorImpl final : public PrincipalOrNoneValidator {
+ public:
+  explicit PrincipalOrNoneValidatorImpl(const nsCString& aAllowedOrigin)
+      : mAllowedOrigin(aAllowedOrigin) {}
 
-  bool ValidateTriggering(const TaintedOrigin& aOrigin) {
+  bool ValidatePrincipalArgs(Tainted<const PrincipalArgs&> aArgs) override {
+    PrincipalArgsValidatorImpl validator(mAllowedOrigin);
+    return ValidateTaintedFields(aArgs, validator);
+  }
+
+ private:
+  const nsCString& mAllowedOrigin;
+};
+
+class LoadArgsValidatorImpl final : public LoadArgsValidator {
+ public:
+  explicit LoadArgsValidatorImpl(const nsCString& aAllowedOrigin)
+      : mAllowedOrigin(aAllowedOrigin) {}
+
+  bool ValidateTriggering(const TaintedOrigin& aOrigin) override {
     ++mTriggeringChecks;
     return aOrigin.spec() == mAllowedOrigin;
   }
-  PrincipalArgsValidatorImpl Loading() { return {mAllowedOrigin}; }
-  PrincipalArgsValidatorImpl RedirectChain() { return {mAllowedOrigin}; }
-  PrincipalOrNoneValidatorImpl TopLevel() { return {mAllowedOrigin}; }
+  bool ValidateLoading(Tainted<const PrincipalArgs&> aArgs) override {
+    PrincipalArgsValidatorImpl validator(mAllowedOrigin);
+    return ValidateTaintedFields(aArgs, validator);
+  }
+  bool ValidateRedirectChain(Tainted<const PrincipalArgs&> aArgs) override {
+    PrincipalArgsValidatorImpl validator(mAllowedOrigin);
+    return ValidateTaintedFields(aArgs, validator);
+  }
+  bool ValidateTopLevel(Tainted<const PrincipalOrNone&> aTopLevel) override {
+    PrincipalOrNoneValidatorImpl validator(mAllowedOrigin);
+    return ValidateTaintedFields(aTopLevel, validator);
+  }
+
+  nsCString mAllowedOrigin;
+  int mTriggeringChecks = 0;
 };
 
-static_assert(ValidatesLoadArgs<LoadArgsValidatorImpl>);
-
-struct MissingHookValidator {
-  bool ValidateTriggering(const TaintedOrigin&) { return true; }
-  PrincipalArgsValidatorImpl Loading();
-  PrincipalArgsValidatorImpl RedirectChain();
+struct MissingHookValidator : public LoadArgsValidator {
+  bool ValidateTriggering(const TaintedOrigin&) override { return true; }
+  bool ValidateLoading(Tainted<const PrincipalArgs&>) override { return true; }
+  bool ValidateRedirectChain(Tainted<const PrincipalArgs&>) override {
+    return true;
+  }
 };
 
-static_assert(!ValidatesLoadArgs<MissingHookValidator>);
+static_assert(std::is_abstract_v<MissingHookValidator>);
 
 static LoadArgs MakeLoadArgs(const char* aRedirectOrigin,
                              const char* aTopLevelOrigin) {
@@ -63,7 +89,7 @@ static LoadArgs MakeLoadArgs(const char* aRedirectOrigin,
 
 TEST(IPDLTaintedFields, AllValid)
 {
-  LoadArgsValidatorImpl validator{"https://a.test"_ns};
+  LoadArgsValidatorImpl validator("https://a.test"_ns);
   Maybe<LoadArgs> args = ValidateTaintedFields(
       Tainted<LoadArgs>(MakeLoadArgs("https://a.test", "https://a.test")),
       validator);
@@ -75,35 +101,47 @@ TEST(IPDLTaintedFields, AllValid)
 
 TEST(IPDLTaintedFields, InvalidArrayElement)
 {
+  LoadArgsValidatorImpl validator("https://a.test"_ns);
   EXPECT_FALSE(ValidateTaintedFields(
       Tainted<LoadArgs>(MakeLoadArgs("https://evil.test", "https://a.test")),
-      LoadArgsValidatorImpl{"https://a.test"_ns}));
+      validator));
 }
 
 TEST(IPDLTaintedFields, InvalidUnionVariant)
 {
+  LoadArgsValidatorImpl validator("https://a.test"_ns);
   EXPECT_FALSE(ValidateTaintedFields(
       Tainted<LoadArgs>(MakeLoadArgs("https://a.test", "https://evil.test")),
-      LoadArgsValidatorImpl{"https://a.test"_ns}));
+      validator));
 }
 
 TEST(IPDLTaintedFields, UntaintedUnionVariant)
 {
   LoadArgs args = MakeLoadArgs("https://a.test", "https://a.test");
   args.topLevel() = 0;
+  LoadArgsValidatorImpl validator("https://a.test"_ns);
   EXPECT_TRUE(
-      ValidateTaintedFields(Tainted<LoadArgs>(std::move(args)),
-                            LoadArgsValidatorImpl{"https://a.test"_ns}));
+      ValidateTaintedFields(Tainted<LoadArgs>(std::move(args)), validator));
 }
 
-struct OriginTreeValidatorImpl {
-  nsCString mAllowedOrigin;
+class OriginTreeValidatorImpl final : public OriginTreeValidator,
+                                      public OriginTreeNodeValidator {
+ public:
+  explicit OriginTreeValidatorImpl(const nsCString& aAllowedOrigin)
+      : mAllowedOrigin(aAllowedOrigin) {}
 
-  bool ValidateTaintedOrigin(const TaintedOrigin& aOrigin) {
+  bool ValidateTaintedOrigin(const TaintedOrigin& aOrigin) override {
     return aOrigin.spec() == mAllowedOrigin;
   }
-  OriginTreeValidatorImpl& OriginTreeNode() { return *this; }
-  OriginTreeValidatorImpl& Children() { return *this; }
+  bool ValidateOriginTreeNode(Tainted<const OriginTreeNode&> aNode) override {
+    return ValidateTaintedFields(aNode, *this);
+  }
+  bool ValidateChildren(Tainted<const OriginTree&> aChild) override {
+    return ValidateTaintedFields(aChild, *this);
+  }
+
+ private:
+  nsCString mAllowedOrigin;
 };
 
 TEST(IPDLTaintedFields, Recursive)
@@ -118,12 +156,11 @@ TEST(IPDLTaintedFields, Recursive)
     return OriginTree{OriginTreeNode{std::move(outer)}};
   };
 
-  EXPECT_TRUE(
-      ValidateTaintedFields(Tainted<OriginTree>(makeTree("https://a.test")),
-                            OriginTreeValidatorImpl{"https://a.test"_ns}));
-  EXPECT_FALSE(
-      ValidateTaintedFields(Tainted<OriginTree>(makeTree("https://evil.test")),
-                            OriginTreeValidatorImpl{"https://a.test"_ns}));
+  OriginTreeValidatorImpl validator("https://a.test"_ns);
+  EXPECT_TRUE(ValidateTaintedFields(
+      Tainted<OriginTree>(makeTree("https://a.test")), validator));
+  EXPECT_FALSE(ValidateTaintedFields(
+      Tainted<OriginTree>(makeTree("https://evil.test")), validator));
 }
 
 }  // namespace mozilla::_ipdltest

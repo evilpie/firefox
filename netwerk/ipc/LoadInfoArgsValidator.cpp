@@ -12,19 +12,14 @@ namespace mozilla::net {
 
 using dom::ValidatePrincipalOptions;
 
-static bool IsNullOrContentPrincipal(nsIPrincipal* aPrincipal) {
+namespace {
+
+bool IsNullOrContentPrincipal(nsIPrincipal* aPrincipal) {
   return !aPrincipal || aPrincipal->GetIsContentPrincipal() ||
          aPrincipal->GetIsNullPrincipal();
 }
 
-bool LoadInfoArgsValidator::ValidateRequestingPrincipal(
-    nsIPrincipal* aPrincipal) {
-  return mLoadedOrigins->ValidatePrincipal(
-      aPrincipal, {ValidatePrincipalOptions::AllowNullPtr,
-                   ValidatePrincipalOptions::AllowSystemIfLoaded});
-}
-
-static bool ValidateTriggeringPrincipalFromContent(
+bool IsValidTriggeringPrincipal(
     dom::LoadedOriginSet* aLoadedOrigins, nsIPrincipal* aPrincipal,
     EnumSet<ValidatePrincipalOptions> aOptions = {}) {
   // Extension content scripts trigger loads with expanded principals.
@@ -33,66 +28,122 @@ static bool ValidateTriggeringPrincipalFromContent(
   return aLoadedOrigins->ValidatePrincipal(aPrincipal, aOptions);
 }
 
-bool RedirectHistoryEntryInfoValidator::ValidatePrincipal(
-    nsIPrincipal* aPrincipal) {
-  return aPrincipal && IsNullOrContentPrincipal(aPrincipal);
-}
-
-static_assert(
-    ValidatesRedirectHistoryEntryInfo<RedirectHistoryEntryInfoValidator>);
-
-bool InterceptionInfoArgValidator::ValidateTriggeringPrincipal(
-    nsIPrincipal* aPrincipal) {
-  return ValidateTriggeringPrincipalFromContent(mLoadedOrigins, aPrincipal);
-}
-
-static_assert(ValidatesInterceptionInfoArg<InterceptionInfoArgValidator>);
-
-bool LoadInfoArgsValidator::ValidateTriggeringPrincipal(
-    nsIPrincipal* aPrincipal) {
-  return ValidateTriggeringPrincipalFromContent(
-      mLoadedOrigins, aPrincipal, {ValidatePrincipalOptions::AllowNullPtr});
-}
-
-bool LoadInfoArgsValidator::ValidatePrincipalToInherit(
-    nsIPrincipal* aPrincipal) {
-  return mLoadedOrigins->ValidatePrincipal(
-      aPrincipal, {ValidatePrincipalOptions::AllowNullPtr,
-                   ValidatePrincipalOptions::AllowSystemIfLoaded});
-}
-
-bool LoadInfoArgsValidator::ValidateClientInfo(
-    const dom::IPCClientInfo& aClientInfo) {
+bool ValidateClientInfoFromContent(dom::LoadedOriginSet* aLoadedOrigins,
+                                   const dom::IPCClientInfo& aClientInfo) {
   return dom::ClientIsValidPrincipalInfo(aClientInfo.principalInfo(),
-                                         mLoadedOrigins);
+                                         aLoadedOrigins);
 }
 
-bool LoadInfoArgsValidator::ValidateTopLevelPrincipal(
-    nsIPrincipal* aPrincipal) {
-  return IsNullOrContentPrincipal(aPrincipal);
+// Redirects may go to any origin, so the principal doesn't need to be loaded
+// in the content process.
+class ContentRedirectHistoryEntryInfoValidator final
+    : public RedirectHistoryEntryInfoValidator {
+ public:
+  bool ValidatePrincipal(NotNull<nsIPrincipal*> aPrincipal) override {
+    return IsNullOrContentPrincipal(aPrincipal);
+  }
+};
+
+bool ValidateRedirectFromContent(
+    Tainted<const RedirectHistoryEntryInfo&> aEntry) {
+  ContentRedirectHistoryEntryInfoValidator validator;
+  return ValidateTaintedFields(aEntry, validator);
 }
 
-bool LoadInfoArgsValidator::ValidateAncestorOrigins(nsIPrincipal* aPrincipal) {
-  return IsNullOrContentPrincipal(aPrincipal);
-}
+class ContentInterceptionInfoArgValidator final
+    : public InterceptionInfoArgValidator {
+ public:
+  explicit ContentInterceptionInfoArgValidator(
+      dom::LoadedOriginSet* aLoadedOrigins)
+      : mLoadedOrigins(aLoadedOrigins) {}
 
-bool LoadInfoArgsValidator::ValidateReservedClientInfo(
-    const dom::IPCClientInfo& aClientInfo) {
-  return dom::ClientIsValidPrincipalInfo(aClientInfo.principalInfo(), nullptr);
-}
+  bool ValidateTriggeringPrincipal(NotNull<nsIPrincipal*> aPrincipal) override {
+    return IsValidTriggeringPrincipal(mLoadedOrigins, aPrincipal);
+  }
 
-bool LoadInfoArgsValidator::ValidateInitialClientInfo(
-    const dom::IPCClientInfo& aClientInfo) {
-  return dom::ClientIsValidPrincipalInfo(aClientInfo.principalInfo(),
-                                         mLoadedOrigins);
-}
+  bool ValidateRedirectChain(
+      Tainted<const RedirectHistoryEntryInfo&> aEntry) override {
+    return ValidateRedirectFromContent(aEntry);
+  }
 
-static_assert(ValidatesLoadInfoArgs<LoadInfoArgsValidator>);
+ private:
+  dom::LoadedOriginSet* mLoadedOrigins;
+};
+
+class ContentLoadInfoArgsValidator final : public LoadInfoArgsValidator {
+ public:
+  explicit ContentLoadInfoArgsValidator(dom::LoadedOriginSet* aLoadedOrigins)
+      : mLoadedOrigins(aLoadedOrigins) {}
+
+  // Principals of documents in the content process.
+  bool ValidateRequestingPrincipal(nsIPrincipal* aPrincipal) override {
+    return mLoadedOrigins->ValidatePrincipal(
+        aPrincipal, {ValidatePrincipalOptions::AllowNullPtr,
+                     ValidatePrincipalOptions::AllowSystemIfLoaded});
+  }
+
+  bool ValidateTriggeringPrincipal(nsIPrincipal* aPrincipal) override {
+    return IsValidTriggeringPrincipal(mLoadedOrigins, aPrincipal,
+                                      {ValidatePrincipalOptions::AllowNullPtr});
+  }
+
+  bool ValidatePrincipalToInherit(nsIPrincipal* aPrincipal) override {
+    return mLoadedOrigins->ValidatePrincipal(
+        aPrincipal, {ValidatePrincipalOptions::AllowNullPtr,
+                     ValidatePrincipalOptions::AllowSystemIfLoaded});
+  }
+
+  bool ValidateClientInfo(const dom::IPCClientInfo& aClientInfo) override {
+    return ValidateClientInfoFromContent(mLoadedOrigins, aClientInfo);
+  }
+
+  bool ValidateInitialClientInfo(
+      const dom::IPCClientInfo& aClientInfo) override {
+    return ValidateClientInfoFromContent(mLoadedOrigins, aClientInfo);
+  }
+
+  // Principals which may belong to documents in other processes.
+  bool ValidateTopLevelPrincipal(nsIPrincipal* aPrincipal) override {
+    return IsNullOrContentPrincipal(aPrincipal);
+  }
+
+  bool ValidateAncestorOrigins(nsIPrincipal* aPrincipal) override {
+    return IsNullOrContentPrincipal(aPrincipal);
+  }
+
+  // The client of a document which doesn't exist yet, so its origin may not
+  // have been loaded in the content process.
+  bool ValidateReservedClientInfo(
+      const dom::IPCClientInfo& aClientInfo) override {
+    return ValidateClientInfoFromContent(nullptr, aClientInfo);
+  }
+
+  bool ValidateRedirectChain(
+      Tainted<const RedirectHistoryEntryInfo&> aEntry) override {
+    return ValidateRedirectFromContent(aEntry);
+  }
+
+  bool ValidateRedirectChainIncludingInternalRedirects(
+      Tainted<const RedirectHistoryEntryInfo&> aEntry) override {
+    return ValidateRedirectFromContent(aEntry);
+  }
+
+  bool ValidateInterceptionInfo(
+      Tainted<const InterceptionInfoArg&> aInterceptionInfo) override {
+    ContentInterceptionInfoArgValidator validator(mLoadedOrigins);
+    return ValidateTaintedFields(aInterceptionInfo, validator);
+  }
+
+ private:
+  dom::LoadedOriginSet* mLoadedOrigins;
+};
+
+}  // namespace
 
 Maybe<LoadInfoArgs> ValidateLoadInfoArgsFromContent(
     Tainted<LoadInfoArgs>&& aArgs, dom::LoadedOriginSet* aLoadedOrigins) {
-  return ValidateTaintedFields(std::move(aArgs),
-                               LoadInfoArgsValidator(aLoadedOrigins));
+  ContentLoadInfoArgsValidator validator(aLoadedOrigins);
+  return ValidateTaintedFields(std::move(aArgs), validator);
 }
 
 }  // namespace mozilla::net

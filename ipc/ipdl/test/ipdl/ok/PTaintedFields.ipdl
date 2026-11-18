@@ -1,15 +1,16 @@
 //expect: PTaintedFieldsParent.cpp: maybe__a = IPC::ReadParam<Tainted<LoadArgs>>
 //expect: PTaintedFieldsParent.cpp: maybe__b = IPC::ReadParam<Tainted<nsTArray<PrincipalArgs>>>
 //expect: PTaintedFieldsChild.cpp: maybe__a = IPC::ReadParam<LoadArgs>
-//expect: PTaintedFields.h: concept ValidatesPrincipalArgs = requires(V& aValidator, mozilla::NotNull<::nsIPrincipal*> aPrincipal) {
-//expect: PTaintedFields.h: { aValidator.ValidatePrincipal(aPrincipal) } -> std::same_as<bool>;
-//expect: PTaintedFields.h: { aValidator.Loading() } -> ::ValidatesPrincipalArgs;
-//expect: PTaintedFields.h: { aValidator.RedirectChain() } -> ::ValidatesPrincipalArgs;
-//expect: PTaintedFields.h: { aValidator.PrincipalArgs() } -> ::ValidatesPrincipalArgs;
-//expect: PTaintedFields.h: concept ValidatesLoadArgs = requires(V& aValidator, ::nsIPrincipal* aTriggering) {
-//expect: PTaintedFields.h: { aValidator.ValidatensIPrincipal(ansIPrincipal) } -> std::same_as<bool>;
+//expect: PTaintedFields.h: class PrincipalArgsValidator {
+//expect: PTaintedFields.h: virtual bool ValidatePrincipal(mozilla::NotNull<::nsIPrincipal*> aPrincipal) = 0;
+//expect: PTaintedFields.h: virtual bool ValidateLoading(mozilla::Tainted<const ::PrincipalArgs&> aLoading) = 0;
+//expect: PTaintedFields.h: virtual bool ValidateRedirectChain(mozilla::Tainted<const ::PrincipalArgs&> aRedirectChain) = 0;
+//expect: PTaintedFields.h: virtual bool ValidatePrincipalArgs(mozilla::Tainted<const ::PrincipalArgs&> aPrincipalArgs) = 0;
+//expect: PTaintedFields.h: virtual bool ValidateTriggering(::nsIPrincipal* aTriggering) = 0;
+//expect: PTaintedFields.h: virtual bool ValidatensIPrincipal(mozilla::NotNull<::nsIPrincipal*> ansIPrincipal) = 0;
 //expect: PTaintedFieldsParent.cpp: maybe__c = IPC::ReadParam<OnlyPassback>
 //expect: PTaintedFields.h: [[nodiscard]] mozilla::Maybe<LoadArgs> ValidateTaintedFields(
+//expect: PTaintedFields.cpp: bool ValidateTaintedFields(
 
 [RefCounted, Tainted] using class nsIPrincipal from "nsIPrincipal.h";
 
