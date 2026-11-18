@@ -74,7 +74,7 @@ parent:
   [Nested=inside_cpow] async PCookieService();
   async PHttpChannel(nullable PBrowser browser,
                      SerializedLoadContext loadContext,
-                     HttpChannelCreationArgs args);
+                     [NoTaint="Bug 2092057"] HttpChannelCreationArgs args);
 
   async PWebSocket(nullable PBrowser browser, SerializedLoadContext loadContext,
                    uint32_t aSerialID);
@@ -86,7 +86,7 @@ parent:
                     DNSFlags flags);
 
   async PDocumentChannel(MaybeDiscardedBrowsingContext browsingContext,
-                         DocumentChannelCreationArgs args);
+                         [NoTaint="Bug 2092057"] DocumentChannelCreationArgs args);
 
   async PWebSocketEventListener(uint64_t aInnerWindowID);
 
@@ -119,7 +119,7 @@ parent:
    * When a nsFileChannel is opened within the content process, we notify
    * "file-channel-opened" in the parent process using this IPC message.
    */
-  async NotifyFileChannelOpened(FileChannelInfo info);
+  async NotifyFileChannelOpened([NoTaint="Bug 2092057"] FileChannelInfo info);
 
   async RequestContextLoadBegin(uint64_t rcid);
   async RequestContextAfterDOMContentLoaded(uint64_t rcid);
@@ -147,13 +147,13 @@ parent:
   /**
    * Page thumbnails remote resource loading
    */
-  async GetPageThumbStream(nullable nsIURI uri, LoadInfoArgs loadInfo) returns (RemoteStreamInfo? info);
-  async GetPageIconStream(nullable nsIURI uri, LoadInfoArgs loadInfo) returns (RemoteStreamInfo? info);
+  async GetPageThumbStream(nullable nsIURI uri, [NoTaint="Bug 2092057"] LoadInfoArgs loadInfo) returns (RemoteStreamInfo? info);
+  async GetPageIconStream(nullable nsIURI uri, [NoTaint="Bug 2092057"] LoadInfoArgs loadInfo) returns (RemoteStreamInfo? info);
 
   /**
    * New Tab wallpaper remote resource loading
    */
-  async GetMozNewTabWallpaperStream(nullable nsIURI uri, LoadInfoArgs loadInfo) returns (RemoteStreamInfo? info);
+  async GetMozNewTabWallpaperStream(nullable nsIURI uri, [NoTaint="Bug 2092057"] LoadInfoArgs loadInfo) returns (RemoteStreamInfo? info);
 
 #ifdef MOZ_THUNDERBIRD
   async GetMailMessageStream(nullable nsIURI uri, LoadInfoArgs loadInfo) returns (RemoteStreamInfo? info);

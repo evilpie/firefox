@@ -246,7 +246,7 @@ parent:
 
   async PHttpBackgroundChannel(uint64_t channelId);
 
-  async PSharedWorker(RemoteWorkerData data,
+  async PSharedWorker([NoTaint="Bug 2092057"] RemoteWorkerData data,
                       uint64_t windowID,
                       MessagePortIdentifier portIdentifier);
 
@@ -276,7 +276,7 @@ parent:
 
   async PServiceWorker(IPCServiceWorkerDescriptor aDescriptor);
 
-  async PRemoteWorkerController(RemoteWorkerData aData);
+  async PRemoteWorkerController([NoTaint="Bug 2092057"] RemoteWorkerData aData);
 
   async PServiceWorkerContainer();
 

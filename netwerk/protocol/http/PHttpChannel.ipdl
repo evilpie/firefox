@@ -44,7 +44,7 @@ parent:
   // Reports approval/veto of redirect by child process redirect observers
   async Redirect2Verify(nsresult result, RequestHeaderTuples changedHeaders,
                         uint32_t sourceRequestBlockingReason,
-                        ChildLoadInfoForwarderArgs? targetLoadInfoForwarder,
+                        [NoTaint="Bug 2092057"] ChildLoadInfoForwarderArgs? targetLoadInfoForwarder,
                         uint32_t loadFlags,
                         nullable nsIReferrerInfo referrerInfo,
                         CorsPreflightArgs? corsPreflightArgs);

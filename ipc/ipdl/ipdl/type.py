@@ -532,6 +532,16 @@ class _CompoundType(IPDLType):
     def isTainted(self):
         return self.tainted
 
+    def taintComponents(self):
+        """Yield the components that propagate taint to this type."""
+        yield from self.itercomponents()
+
+    def hasTaintedFields(self):
+        """Whether this type isn't [Tainted] itself, but some component
+        not marked [NoTaint] contains [Tainted] data, possibly nested inside
+        other structs or unions. Only valid once all types are defined."""
+        return not self.tainted and _reachesTaint(self, set())
+
     def isAtom(self):
         return False
 
@@ -575,6 +585,12 @@ class StructType(_CompoundType):
         _CompoundType.__init__(self, tainted)
         self.qname = qname
         self.fields = fields  # [ Type ]
+        self.fieldNoTaint = []  # [ bool ], parallel to |fields|
+
+    def taintComponents(self):
+        for f, noTaint in zip(self.fields, self.fieldNoTaint):
+            if not noTaint:
+                yield f
 
     def isStruct(self):
         return True
@@ -782,11 +798,40 @@ def iteractortypes(t, visited=None):
 
 def hasTaintedBaseType(t):
     """Return true iff |t|, or the type wrapped by a nullable/maybe/array/
-    uniqueptr modifier, is a [Tainted] type. Does not look inside structs or
-    unions."""
+    uniqueptr modifier, is a [Tainted] type, or a struct or union which contains
+    [Tainted] data that isn't marked [NoTaint]."""
     while t.isIPDL() and t.hasBaseType():
         t = t.basetype
-    return t.isTainted()
+    return t.isTainted() or (t.isIPDL() and t.isCompound() and t.hasTaintedFields())
+
+
+def _reachesTaint(t, visited):
+    while t.isIPDL() and t.hasBaseType():
+        t = t.basetype
+    if t.isTainted():
+        return True
+    if not (t.isIPDL() and t.isCompound()) or t in visited:
+        return False
+    visited.add(t)
+    return any(_reachesTaint(c, visited) for c in t.taintComponents())
+
+
+def taintedFieldKind(t):
+    """Classify a struct field or union member type for validation of nested
+    [Tainted] data. Returns (wrappers, kind, basetype), where |wrappers| lists the
+    array/maybe/uniqueptr modifiers around |basetype|, and |kind| is "leaf" for
+    a [Tainted] type, "nested" for a struct or union containing [Tainted]
+    data, or None."""
+    wrappers = []
+    while t.isIPDL() and (t.isArray() or t.isMaybe() or t.isUniquePtr()):
+        wrappers.append(t)
+        t = t.basetype
+    base = t.basetype if t.isIPDL() and t.isNotNull() else t
+    if base.isTainted():
+        return wrappers, "leaf", t
+    if base.isIPDL() and base.isCompound() and base.hasTaintedFields():
+        return wrappers, "nested", base
+    return wrappers, None, t
 
 
 def hasshmem(type):
@@ -1232,6 +1277,9 @@ class GatherDecls(TcheckVisitor):
                 )
                 continue
 
+            self.checkAttributes(
+                f.attributes, {"NoTaint": ("passback", "allvalid", StringLiteral)}
+            )
             f.decl = self.declare(
                 loc=f.loc,
                 type=self._canonicalType(ftypedecl.type, f.typespec),
@@ -1239,6 +1287,7 @@ class GatherDecls(TcheckVisitor):
                 fullname=None,
             )
             stype.fields.append(f.decl.type)
+            stype.fieldNoTaint.append("NoTaint" in f.attributes)
 
         self.symtab.exitScope()
 
@@ -1532,19 +1581,11 @@ class GatherDecls(TcheckVisitor):
             else:
                 ptype = self._canonicalType(ptdecl.type, param.typespec)
 
-            if "NoTaint" in param.attributes and not (
-                "Tainted" in md.attributes or hasTaintedBaseType(ptype)
-            ):
-                self.error(
-                    ploc,
-                    "argument typename `%s' of message `%s' has a NoTaint attribute, but neither the message nor the type is Tainted",
-                    ptname,
-                    msgname,
-                )
-
-            return self.declare(
+            pdecl = self.declare(
                 loc=ploc, type=ptype, progname=param.name, attributes=param.attributes
             )
+            pdecl.typename = ptname
+            return pdecl
 
         for i, inparam in enumerate(md.inParams):
             pdecl = paramToDecl(inparam)
@@ -1671,6 +1712,16 @@ class CheckTypes(TcheckVisitor):
     def visitStructDecl(self, sd):
         if not fullyDefined(sd.decl.type):
             self.error(sd.decl.loc, "struct `%s' is only partially defined", sd.name)
+            return
+
+        for f in sd.fields:
+            if "NoTaint" in f.attributes and not _reachesTaint(f.decl.type, set()):
+                self.error(
+                    f.loc,
+                    "field `%s' of struct `%s' has a NoTaint attribute, but its type contains no Tainted data",
+                    f.name,
+                    sd.name,
+                )
 
     def visitUnionDecl(self, ud):
         if not fullyDefined(ud.decl.type):
@@ -1754,6 +1805,19 @@ class CheckTypes(TcheckVisitor):
         ptype, pname = md.protocolDecl.type, md.protocolDecl.shortname
 
         loc = md.decl.loc
+
+        # This needs all struct and union types to be defined, as it looks
+        # through them for nested [Tainted] data.
+        for param in md.inParams + md.outParams:
+            if "NoTaint" in param.attributes and not (
+                mtype.tainted or hasTaintedBaseType(param.type)
+            ):
+                self.error(
+                    param.loc,
+                    "argument typename `%s' of message `%s' has a NoTaint attribute, but neither the message nor the type is Tainted",
+                    param.typename,
+                    mname,
+                )
 
         if mtype.nested == INSIDE_SYNC_NESTED and not mtype.isSync():
             self.error(

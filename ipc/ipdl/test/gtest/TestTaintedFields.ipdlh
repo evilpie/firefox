@@ -1,0 +1,36 @@
+namespace mozilla {
+namespace _ipdltest {
+
+[Tainted] struct TaintedOrigin {
+    nsCString spec;
+};
+
+struct PrincipalArgs {
+    TaintedOrigin origin;
+    uint32_t flags;
+};
+
+union PrincipalOrNone {
+    PrincipalArgs;
+    int;
+};
+
+struct LoadArgs {
+    TaintedOrigin triggering;
+    PrincipalArgs? loading;
+    PrincipalArgs[] redirectChain;
+    PrincipalOrNone topLevel;
+    nsCString url;
+};
+
+union OriginTree {
+    TaintedOrigin;
+    OriginTreeNode;
+};
+
+struct OriginTreeNode {
+    OriginTree[] children;
+};
+
+} // namespace _ipdltest
+} // namespace mozilla

@@ -347,8 +347,8 @@ def p_StructFields(p):
 
 
 def p_StructField(p):
-    """StructField : Type ID"""
-    p[0] = StructField(locFromTok(p, 1), p[1], p[2])
+    """StructField : Attributes Type ID"""
+    p[0] = StructField(locFromTok(p, 2), p[2], p[3], p[1])
 
 
 def p_UnionDecl(p):

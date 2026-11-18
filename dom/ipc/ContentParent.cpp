@@ -185,6 +185,7 @@
 #include "mozilla/mozSpellChecker.h"
 #include "mozilla/net/CookieKey.h"
 #include "mozilla/net/CookieServiceParent.h"
+#include "mozilla/net/LoadInfoArgsValidator.h"
 #include "mozilla/net/NeckoMessageUtils.h"
 #include "mozilla/net/NeckoParent.h"
 #include "mozilla/net/PCookieServiceParent.h"
@@ -4922,14 +4923,20 @@ mozilla::ipc::IPCResult ContentParent::RecvConsoleMessage(
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvReportFrameTimingData(
-    const LoadInfoArgs& loadInfoArgs, const nsAString& entryName,
+    Tainted<LoadInfoArgs>&& aLoadInfoArgs, const nsAString& entryName,
     const nsAString& initiatorType, UniquePtr<PerformanceTimingData>&& aData) {
   if (!aData) {
     return IPC_FAIL(this, "aData should not be null");
   }
 
+  Maybe<LoadInfoArgs> loadInfoArgs = net::ValidateLoadInfoArgsFromContent(
+      std::move(aLoadInfoArgs), LoadedOrigins());
+  if (!loadInfoArgs) {
+    return IPC_FAIL(this, "Invalid LoadInfoArgs");
+  }
+
   RefPtr<WindowGlobalParent> parent =
-      WindowGlobalParent::GetByInnerWindowId(loadInfoArgs.innerWindowID());
+      WindowGlobalParent::GetByInnerWindowId(loadInfoArgs->innerWindowID());
   if (!parent || !parent->GetContentParent()) {
     return IPC_OK();
   }
@@ -4938,7 +4945,7 @@ mozilla::ipc::IPCResult ContentParent::RecvReportFrameTimingData(
              "No need to bounce around if in the same process");
 
   (void)parent->GetContentParent()->SendReportFrameTimingData(
-      loadInfoArgs, entryName, initiatorType, aData);
+      *loadInfoArgs, entryName, initiatorType, aData);
   return IPC_OK();
 }
 

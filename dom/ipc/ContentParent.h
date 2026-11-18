@@ -1078,7 +1078,7 @@ class ContentParent final : public PContentParent,
       const bool& aIsFromChromeContext);
 
   mozilla::ipc::IPCResult RecvReportFrameTimingData(
-      const LoadInfoArgs& loadInfoArgs, const nsAString& entryName,
+      Tainted<LoadInfoArgs>&& aLoadInfoArgs, const nsAString& entryName,
       const nsAString& initiatorType, UniquePtr<PerformanceTimingData>&& aData);
 
   mozilla::ipc::IPCResult RecvScriptErrorWithStack(

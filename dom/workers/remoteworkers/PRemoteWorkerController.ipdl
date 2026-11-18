@@ -34,13 +34,13 @@ protocol PRemoteWorkerController {
   async SetServiceWorkerSkipWaitingFlag() returns (bool aOk);
 
  parent:
-  async PFetchEventOp(ParentToParentServiceWorkerFetchEventOpArgs aArgs);
+  async PFetchEventOp([NoTaint="Bug 2092057"] ParentToParentServiceWorkerFetchEventOpArgs aArgs);
 
   async __delete__();
 
   async Shutdown() returns (bool aOk);
 
-  async ExecServiceWorkerOp(ServiceWorkerOpArgs aArgs)
+  async ExecServiceWorkerOp([NoTaint="Bug 2092057"] ServiceWorkerOpArgs aArgs)
       returns (ServiceWorkerOpResult aResult);
 };
 

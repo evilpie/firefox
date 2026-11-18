@@ -21,7 +21,7 @@ protocol PClientHandle
 parent:
   async Teardown();
 
-  async PClientHandleOp(ClientOpConstructorArgs aArgs);
+  async PClientHandleOp([NoTaint="Bug 2092057"] ClientOpConstructorArgs aArgs);
 
 child:
   async ExecutionReady(IPCClientInfo aClientInfo);

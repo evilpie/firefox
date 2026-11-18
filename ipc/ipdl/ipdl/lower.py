@@ -2,6 +2,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+import io
 import itertools
 import re
 from copy import deepcopy
@@ -9,6 +10,7 @@ from copy import deepcopy
 import ipdl.ast
 import ipdl.builtin
 from ipdl.cxx.ast import *
+from ipdl.cxx.cgen import CxxCodeGen
 from ipdl.cxx.code import *
 from ipdl.type import (
     ActorType,
@@ -16,6 +18,7 @@ from ipdl.type import (
     UnionType,
     builtinHeaderIncludes,
     hasTaintedBaseType,
+    taintedFieldKind,
 )
 from ipdl.util import hash_str
 
@@ -588,8 +591,8 @@ def _cxxRefType(ipdltype, side):
     return t
 
 
-def _cxxConstRefType(ipdltype, side):
-    t = _cxxBareType(ipdltype, side)
+def _cxxConstRefType(ipdltype, side, fq=False):
+    t = _cxxBareType(ipdltype, side, fq=fq)
     if ipdltype.isIPDL() and ipdltype.isActor():
         return t
     if ipdltype.isIPDL() and ipdltype.isShmem():
@@ -597,13 +600,13 @@ def _cxxConstRefType(ipdltype, side):
         return t
     if ipdltype.isIPDL() and ipdltype.isNotNull():
         # If the inner type chooses to use a raw pointer, wrap that instead.
-        inner = _cxxConstRefType(ipdltype.basetype, side)
+        inner = _cxxConstRefType(ipdltype.basetype, side, fq=fq)
         if inner.ptr:
             t = _cxxNotNullType(inner)
             return t
     if ipdltype.isIPDL() and ipdltype.hasBaseType():
         # Keep same constness as inner type.
-        inner = _cxxConstRefType(ipdltype.basetype, side)
+        inner = _cxxConstRefType(ipdltype.basetype, side, fq=fq)
         t.const = inner.const or not inner.ref
         t.ref = True
         return t
@@ -1133,7 +1136,12 @@ class MessageDecl(ipdl.ast.MessageDecl):
         trusted process."""
         if "NoTaint" in d.attributes:
             return False
-        if self.decl.type.tainted:
+        mtype = self.decl.type
+        if side == "parent" and not (mtype.isIn() or mtype.isInout()):
+            return False
+        if side == "child" and not (mtype.isOut() or mtype.isInout()):
+            return False
+        if mtype.tainted:
             return True
         return hasTaintedBaseType(
             d.ipdltype
@@ -1570,12 +1578,21 @@ class _GenerateProtocolCode(ipdl.ast.Visitor):
 
             aggregateTypeIncludes.update(typedeps.includeHeaders)
 
+            if su.decl.type.hasTaintedFields():
+                aggregateTypeIncludes.update([
+                    "<concepts>",
+                    "mozilla/Maybe.h",
+                    "mozilla/Tainting.h",
+                ])
+
         if len(aggregateTypeIncludes) != 0:
             hf.addthing(Whitespace.NL)
             hf.addthings([Whitespace("// Headers for typedefs"), Whitespace.NL])
 
             for headername in sorted(iter(aggregateTypeIncludes)):
-                hf.addthing(CppDirective("include", '"' + headername + '"'))
+                if not headername.startswith("<"):
+                    headername = '"' + headername + '"'
+                hf.addthing(CppDirective("include", headername))
 
         # Manually run Visitor.visitTranslationUnit. For dependency resolution
         # we need to handle structs and unions separately.
@@ -1656,6 +1673,25 @@ class _GenerateProtocolCode(ipdl.ast.Visitor):
 
             clsdecl, methoddefns = _splitClassDeclDefn(cls)
 
+            validator = []
+            if su.decl.type.hasTaintedFields():
+                validator = [
+                    Whitespace.NL,
+                    _putInNamespaces(
+                        Whitespace(_generateTaintedFieldsValidator(su)), su.namespaces
+                    ),
+                ]
+                # The validator concepts of nested types must be declared
+                # before ours.
+                for c in su.decl.type.taintComponents():
+                    _, kind, base = taintedFieldKind(c)
+                    if (
+                        kind == "nested"
+                        and base not in fulldecltypes
+                        and not su.decl.type.mutuallyRecursiveWith(base)
+                    ):
+                        fulldecltypes.append(base)
+
             # Store the declarations in the decls map so we can emit in
             # dependency order.
             decls[su.decl.type] = (
@@ -1673,7 +1709,8 @@ class _GenerateProtocolCode(ipdl.ast.Visitor):
                     ),
                     _putInNamespaces(clsdecl, su.namespaces),
                 ]
-                + [Whitespace.NL, traitsdecl],
+                + [Whitespace.NL, traitsdecl]
+                + validator,
             )
 
             self.structUnionDefns.extend([
@@ -2471,6 +2508,151 @@ def _fieldStaticAssertions(sd):
         )
 
     return staticasserts
+
+
+def _cxxTypeStr(t):
+    buf = io.StringIO()
+    t.accept(CxxCodeGen(outf=buf))
+    return buf.getvalue()
+
+
+def _indentLines(lines, n):
+    return [" " * n + l if l else l for l in lines]
+
+
+def _generateTaintedFieldsValidator(su):
+    """Generate, for a struct or union |su| containing [Tainted] data, a C++
+    concept |Validates<Name>| listing one hook per tainted member, and the
+    |ValidateTaintedFields| function that runs those hooks to remove the
+    Tainted<> wrapper.
+
+    A [Tainted] member |foo| of type T requires the hook
+    |bool ValidateFoo(const T&)|. A member |bar| of a struct or union type U
+    which contains [Tainted] data requires the accessor |Bar()|, returning a
+    validator satisfying |ValidatesU|. Union members are named after their
+    variant instead. Array, Maybe and UniquePtr members apply the hook to each
+    present element. Members marked [NoTaint] are skipped. For a member whose
+    type is mutually recursive with |su|, the accessor's result is only
+    checked against |ValidatesU| when it is used."""
+    name = su.name
+    concept = "Validates" + name
+
+    if isinstance(su, StructDecl):
+        members = [
+            (f.ipdltype, f.name[0].upper() + f.name[1:], "aValue.%s()" % f.name, None)
+            for f, noTaint in zip(su.fields_ipdl_order(), su.decl.type.fieldNoTaint)
+            if not noTaint
+        ]
+    else:
+        members = [
+            (
+                c.ipdltype,
+                c.flattypename,
+                "aValue.%s()" % c.getTypeName(),
+                "%s::%s" % (name, c.enum()),
+            )
+            for c in su.components
+        ]
+
+    requirements = []
+    hookParams = []
+    cases = []
+    for ipdltype, hookname, getter, enum in members:
+        wrappers, kind, base = taintedFieldKind(ipdltype)
+        if kind is None:
+            continue
+
+        if kind == "leaf":
+            param = "a" + hookname
+            basetype = _cxxTypeStr(_cxxConstRefType(base, None, fq=True))
+            hookParams.append("%s %s" % (basetype, param))
+            requirements.append(
+                "{ aValidator.Validate%s(%s) } -> std::same_as<bool>;"
+                % (hookname, param)
+            )
+        elif su.decl.type.mutuallyRecursiveWith(base):
+            # The concept for |base| may not be declared yet, so it is only
+            # checked when |base| is validated.
+            requirements.append("aValidator.%s();" % hookname)
+        else:
+            requirements.append(
+                "{ aValidator.%s() } -> %s;"
+                % (
+                    hookname,
+                    str(
+                        ipdl.ast.QualifiedId(
+                            None, "Validates" + base.name(), base.qname.quals
+                        )
+                    ),
+                )
+            )
+
+        def check(expr):
+            if kind == "leaf":
+                cond = "aValidator.Validate%s(%s)" % (hookname, expr)
+            else:
+                cond = "ValidateTaintedFieldsInPlace(%s, sub)" % expr
+            return ["if (!%s) {" % cond, "  return false;", "}"]
+
+        def wrap(expr, depth, ws):
+            if not ws:
+                return check(expr)
+            elem = "e%d" % depth
+            if ws[0].isArray():
+                head = "for (auto& %s : %s) {" % (elem, expr)
+                inner = wrap(elem, depth + 1, ws[1:])
+            else:
+                head = "if (auto& %s = %s) {" % (elem, expr)
+                inner = wrap("*" + elem, depth + 1, ws[1:])
+            return [head] + _indentLines(inner, 2) + ["}"]
+
+        body = wrap(getter, 0, wrappers)
+        if kind == "nested":
+            body = ["auto&& sub = aValidator.%s();" % hookname] + body
+        cases.append((enum, body))
+
+    out = [
+        "",
+        "// Hooks needed to validate the tainted members of |%s|." % name,
+        "template <typename V>",
+        "concept %s = requires(V& aValidator%s) {"
+        % (concept, "".join(", " + p for p in hookParams)),
+    ]
+    out += _indentLines(requirements, 2)
+    out += [
+        "};",
+        "",
+        "template <%s V>" % concept,
+        "[[nodiscard]] bool ValidateTaintedFieldsInPlace(%s& aValue, V& aValidator) {"
+        % name,
+    ]
+    if isinstance(su, StructDecl):
+        for _, body in cases:
+            out += ["  {"] + _indentLines(body, 4) + ["  }"]
+        out += ["  return true;"]
+    else:
+        out += ["  switch (aValue.type()) {"]
+        for enum, body in cases:
+            out += ["    case %s: {" % enum] + _indentLines(body, 6)
+            out += ["      return true;", "    }"]
+        out += ["    default:", "      return true;", "  }"]
+    out += [
+        "}",
+        "",
+        "// Validates every tainted member of |aTainted| using |aValidator|, and",
+        "// returns the untainted value if all of them are valid.",
+        "template <%s V>" % concept,
+        "[[nodiscard]] mozilla::Maybe<%s> ValidateTaintedFields(" % name,
+        "    mozilla::Tainted<%s>&& aTainted, V&& aValidator) {" % name,
+        "  %s& value = aTainted.Coerce();" % name,
+        "  if (!ValidateTaintedFieldsInPlace(value, aValidator)) {",
+        "    return mozilla::Nothing();",
+        "  }",
+        "  return mozilla::Some(std::move(value));",
+        "}",
+        "",
+    ]
+    return "\n".join(out)
 
 
 def _generateCxxStruct(sd):

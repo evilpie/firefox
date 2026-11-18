@@ -323,10 +323,11 @@ class Protocol(NamespacedNode):
 
 
 class StructField(Node):
-    def __init__(self, loc, type, name):
+    def __init__(self, loc, type, name, attributes={}):
         Node.__init__(self, loc)
         self.typespec = type
         self.name = name
+        self.attributes = attributes
 
 
 class StructDecl(NamespacedNode):

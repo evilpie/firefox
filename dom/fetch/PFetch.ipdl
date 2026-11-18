@@ -37,7 +37,7 @@ protocol PFetch {
   manager PBackground;
 
   parent:
-    async FetchOp(FetchOpArgs aArgs);
+    async FetchOp([NoTaint="Bug 2092057"] FetchOpArgs aArgs);
 
     async AbortFetchOp(bool aForceAbort);
 

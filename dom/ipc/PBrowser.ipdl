@@ -532,7 +532,7 @@ parent:
                            uint32_t aFlags, bool aCanGoBack,
                            bool aCanGoBackIgnoringUserInteraction,
                            bool aCanGoForward,
-                           WebProgressLocationChangeData? aLocationChangeData);
+                           [NoTaint="Bug 2092057"] WebProgressLocationChangeData? aLocationChangeData);
 
     // NOTE: ProgressChange and StatusChange notifications here are throttled by
     // nsBrowserStatusFilter, which passes meaningless values for all other
@@ -1104,7 +1104,7 @@ parent:
      * Construct a new WindowGlobal for an existing global in the content process
      */
     async NewWindowGlobal(ManagedEndpoint<PWindowGlobalParent> aEndpoint,
-                          WindowGlobalInit aInit);
+                          [NoTaint="Bug 2092057"] WindowGlobalInit aInit);
 
     async UpdateDropEffect(uint32_t aDragAction, uint32_t aDropEffect);
 

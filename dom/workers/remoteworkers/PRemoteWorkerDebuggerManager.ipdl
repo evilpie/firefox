@@ -21,7 +21,7 @@ namespace dom{
 protocol PRemoteWorkerDebuggerManager
 {
 parent:
-  async Register(RemoteWorkerDebuggerInfo aDebuggerInfo,
+  async Register([NoTaint="Bug 2092057"] RemoteWorkerDebuggerInfo aDebuggerInfo,
       Endpoint<PRemoteWorkerDebuggerParent> aParentEp);
 };
 

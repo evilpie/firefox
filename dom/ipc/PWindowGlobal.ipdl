@@ -125,7 +125,7 @@ child:
   async RestoreTabContent(nullable SessionStoreRestoreData aData) returns (bool success);
 
 both:
-  async RawMessage(JSActorMessageMeta aMetadata, JSIPCValue aData,
+  async RawMessage(JSActorMessageMeta aMetadata, [NoTaint="Bug 2092057"] JSIPCValue aData,
                    nullable StructuredCloneData aStack);
 
 parent:

@@ -32,6 +32,7 @@ SOURCES += [
     "TestSelfManage.cpp",
     "TestShmem.cpp",
     "TestSyncError.cpp",
+    "TestTaintedFields.cpp",
     "TestUniquePtrIPC.cpp",
     "TestUrgency.cpp",
 ]
@@ -70,6 +71,7 @@ IPDL_SOURCES += [
     "PTestSyncError.ipdl",
     "PTestUniquePtrIPC.ipdl",
     "PTestUrgency.ipdl",
+    "TestTaintedFields.ipdlh",
 ]
 
 include("/ipc/chromium/chromium-config.mozbuild")

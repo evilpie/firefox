@@ -18,7 +18,7 @@ protocol PServiceWorker
 parent:
   async Teardown();
 
-  async PostMessage(nullable StructuredCloneData aClonedData, PostMessageSource aSource);
+  async PostMessage(nullable StructuredCloneData aClonedData, [NoTaint="Bug 2092057"] PostMessageSource aSource);
 
 child:
   async __delete__();

@@ -568,7 +568,7 @@ parent:
     async ConstructPopupBrowser(ManagedEndpoint<PBrowserParent> browserEp,
                                 ManagedEndpoint<PWindowGlobalParent> windowEp,
                                 TabId tabId, IPCTabContext context,
-                                WindowGlobalInit windowInit,
+                                [NoTaint="Bug 2092057"] WindowGlobalInit windowInit,
                                 uint32_t chromeFlags);
 
     // TODO: Do I need to make this return something to watch for completion?
@@ -600,7 +600,7 @@ both:
     async PWebBrowserPersistDocument(nullable PBrowser aBrowser,
                                      MaybeDiscardedBrowsingContext aContext);
 
-    async RawMessage(JSActorMessageMeta aMetadata, JSIPCValue aData,
+    async RawMessage(JSActorMessageMeta aMetadata, [NoTaint="Bug 2092057"] JSIPCValue aData,
                      nullable StructuredCloneData aStack);
 
 child:
@@ -1277,7 +1277,7 @@ parent:
     // Pass true for aForceSave to always save this content to disk, regardless of
     // nsIMIMEInfo and other such influences.
     async PExternalHelperApp(nullable nsIURI uri,
-                             LoadInfoArgs loadInfoArgs,
+                             [NoTaint="Bug 2092057"] LoadInfoArgs loadInfoArgs,
                              nsCString aMimeContentType,
                              nsCString aContentDisposition,
                              uint32_t aContentDispositionHint,
@@ -1300,7 +1300,7 @@ parent:
                                bool isFromChromeContext, StructuredCloneData stack);
 
     // Places the items within dataTransfer on the clipboard.
-    async SetClipboard(IPCTransferable aTransferable,
+    async SetClipboard([NoTaint="Bug 2092057"] IPCTransferable aTransferable,
                        ClipboardType aWhichClipboard, MaybeDiscardedWindowContext aRequestingWindowContext);
 
     // Given a list of supported types, returns the clipboard data for the
@@ -1661,7 +1661,7 @@ parent:
      async StoreAndBroadcastBlobURLRegistration(nsCString url, IPCBlob blob,
                                                 nsIPrincipal principal, nsCString aPartitionKey);
 
-     async UnstoreAndBroadcastBlobURLUnregistration(BroadcastBlobURLUnregistrationRequest[] aRequests);
+     async UnstoreAndBroadcastBlobURLUnregistration([NoTaint="Bug 2092057"] BroadcastBlobURLUnregistrationRequest[] aRequests);
 
     /**
      * Messages for communicating child Glean data to the parent process
@@ -1986,7 +1986,7 @@ both:
     async MaybeExitFullscreen(MaybeDiscardedBrowsingContext aContext);
     async WindowPostMessage(MaybeDiscardedBrowsingContext aContext,
                             nullable StructuredCloneData aMessage,
-                            PostMessageData aData);
+                            [NoTaint="Bug 2092057"] PostMessageData aData);
 
     async CommitWindowContextTransaction(MaybeDiscardedWindowContext aContext,
                                          WindowContextTransaction aTransaction,

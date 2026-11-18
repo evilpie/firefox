@@ -22,7 +22,7 @@ parent:
                   nsCString aLocalAddress,
                   int32_t aLocalPort,
                   bool aUseTls,
-                  WebrtcProxyConfig? aProxyConfig);
+                  [NoTaint="Bug 2092057"] WebrtcProxyConfig? aProxyConfig);
   async Write(uint8_t[] aWriteData);
   async Close();
 

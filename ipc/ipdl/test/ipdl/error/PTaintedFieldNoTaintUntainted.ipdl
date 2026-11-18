@@ -1,0 +1,11 @@
+//error: field `x' of struct `Plain' has a NoTaint attribute, but its type contains no Tainted data
+
+struct Plain {
+    [NoTaint=allvalid] int x;
+};
+
+[ChildProc=any]
+protocol PTaintedFieldNoTaintUntainted {
+parent:
+    async Foo(Plain a);
+};

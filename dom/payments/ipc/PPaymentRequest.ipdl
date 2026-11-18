@@ -233,7 +233,7 @@ sync protocol PPaymentRequest
 parent:
   async __delete__();
 
-  async RequestPayment(IPCPaymentActionRequest aAction);
+  async RequestPayment([NoTaint="Bug 2092057"] IPCPaymentActionRequest aAction);
 
 child:
   async RespondPayment(IPCPaymentActionResponse aResponse);

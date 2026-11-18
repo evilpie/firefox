@@ -14,7 +14,7 @@ protocol PClientNavigateOp
   manager PClientManager;
 
 parent:
-  async __delete__(ClientOpResult aResult);
+  async __delete__([NoTaint="Bug 2092057"] ClientOpResult aResult);
 };
 
 } // namespace dom

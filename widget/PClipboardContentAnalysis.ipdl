@@ -46,7 +46,7 @@ parent:
     // nsIClipboard::setData returns.
     // aSettingWindowContextId is the ID of the window doing the copy, which is
     // used for content analysis.
-    sync SetClipboard(IPCTransferable aTransferable,
+    sync SetClipboard([NoTaint="Bug 2092057"] IPCTransferable aTransferable,
                       ClipboardType aWhichClipboard,
                       uint64_t aSettingWindowContextId)
         returns (nsresult rv);
